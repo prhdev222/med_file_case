@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}จัดการการสำรองข้อมูล{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admin_dashboard') }}">แดชบอร์ด</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">จัดการการสำรองข้อมูล</li>
+                </ol>
+            </nav>
+            
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-database me-2"></i>จัดการการสำรองข้อมูล</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-info text-white">
+                                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>การสำรองข้อมูลอัตโนมัติ</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>ระบบจะทำการสำรองข้อมูลอัตโนมัติทุก {{ backup_interval }} ชั่วโมง</p>
+                                    <p>การสำรองข้อมูลครั้งล่าสุด: {{ last_backup_time }}</p>
+                                    <p>การสำรองข้อมูลครั้งถัดไป: {{ next_backup_time }}</p>
+                                    <form method="post" action="{{ url_for('admin_update_backup_settings') }}">
+                                        <div class="mb-3">
+                                            <label for="backup_interval" class="form-label">ระยะเวลาในการสำรองข้อมูล (ชั่วโมง)</label>
+                                            <input type="number" class="form-control" id="backup_interval" name="backup_interval" value="{{ backup_interval }}" min="1" max="168">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="keep_days" class="form-label">เก็บข้อมูลสำรองไว้ (วัน)</label>
+                                            <input type="number" class="form-control" id="keep_days" name="keep_days" value="{{ keep_days }}" min="1" max="365">
+                                        </div>
+                                        <button type="submit" class="btn btn-primary">บันทึกการตั้งค่า</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header bg-success text-white">
+                                    <h5 class="mb-0"><i class="fas fa-play me-2"></i>การสำรองข้อมูลด้วยตนเอง</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>คุณสามารถสั่งให้ระบบทำการสำรองข้อมูลได้ทันที</p>
+                                    <form method="post" action="{{ url_for('admin_run_backup_now') }}">
+                                        <div class="form-check mb-3">
+                                            <input class="form-check-input" type="checkbox" id="backup_database" name="backup_database" checked>
+                                            <label class="form-check-label" for="backup_database">
+                                                สำรองฐานข้อมูล
+                                            </label>
+                                        </div>
+                                        <div class="form-check mb-3">
+                                            <input class="form-check-input" type="checkbox" id="backup_uploads" name="backup_uploads" checked>
+                                            <label class="form-check-label" for="backup_uploads">
+                                                สำรองไฟล์ที่อัปโหลด
+                                            </label>
+                                        </div>
+                                        <button type="submit" class="btn btn-success">สำรองข้อมูลทันที</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header bg-secondary text-white">
+                                    <h5 class="mb-0"><i class="fas fa-history me-2"></i>ประวัติการสำรองข้อมูล</h5>
+                                </div>
+                                <div class="card-body">
+                                    <ul class="nav nav-tabs" id="backupTabs" role="tablist">
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab" aria-controls="database" aria-selected="true">ฐานข้อมูล</button>
+                                        </li>
+                                        <li class="nav-item" role="presentation">
+                                            <button class="nav-link" id="uploads-tab" data-bs-toggle="tab" data-bs-target="#uploads" type="button" role="tab" aria-controls="uploads" aria-selected="false">ไฟล์อัปโหลด</button>
+                                        </li>
+                                    </ul>
+                                    <div class="tab-content" id="backupTabsContent">
+                                        <div class="tab-pane fade show active" id="database" role="tabpanel" aria-labelledby="database-tab">
+                                            <div class="table-responsive mt-3">
+                                                <table class="table table-striped table-hover">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>ชื่อไฟล์</th>
+                                                            <th>วันที่สำรอง</th>
+                                                            <th>ขนาด</th>
+                                                            <th>การจัดการ</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for backup in database_backups %}
+                                                        <tr>
+                                                            <td>{{ backup.filename }}</td>
+                                                            <td>{{ backup.date }}</td>
+                                                            <td>{{ backup.size }}</td>
+                                                            <td>
+                                                                <a href="{{ url_for('admin_download_backup', backup_type='database', filename=backup.filename) }}" class="btn btn-sm btn-primary"><i class="fas fa-download"></i></a>
+                                                                <a href="{{ url_for('admin_restore_backup', backup_type='database', filename=backup.filename) }}" class="btn btn-sm btn-warning" onclick="return confirm('คุณแน่ใจหรือไม่ที่จะกู้คืนฐานข้อมูลนี้? ข้อมูลปัจจุบันจะถูกแทนที่ทั้งหมด')"><i class="fas fa-undo"></i></a>
+                                                                <a href="{{ url_for('admin_delete_backup', backup_type='database', filename=backup.filename) }}" class="btn btn-sm btn-danger" onclick="return confirm('คุณแน่ใจหรือไม่ที่จะลบไฟล์สำรองนี้?')"><i class="fas fa-trash"></i></a>
+                                                            </td>
+                                                        </tr>
+                                                        {% else %}
+                                                        <tr>
+                                                            <td colspan="4" class="text-center">ไม่พบข้อมูลสำรอง</td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        <div class="tab-pane fade" id="uploads" role="tabpanel" aria-labelledby="uploads-tab">
+                                            <div class="table-responsive mt-3">
+                                                <table class="table table-striped table-hover">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>ชื่อโฟลเดอร์</th>
+                                                            <th>วันที่สำรอง</th>
+                                                            <th>จำนวนไฟล์</th>
+                                                            <th>การจัดการ</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for backup in uploads_backups %}
+                                                        <tr>
+                                                            <td>{{ backup.foldername }}</td>
+                                                            <td>{{ backup.date }}</td>
+                                                            <td>{{ backup.file_count }}</td>
+                                                            <td>
+                                                                <a href="{{ url_for('admin_restore_backup', backup_type='uploads', filename=backup.foldername) }}" class="btn btn-sm btn-warning" onclick="return confirm('คุณแน่ใจหรือไม่ที่จะกู้คืนไฟล์อัปโหลดเหล่านี้? ไฟล์ปัจจุบันจะถูกแทนที่ทั้งหมด')"><i class="fas fa-undo"></i></a>
+                                                                <a href="{{ url_for('admin_delete_backup', backup_type='uploads', filename=backup.foldername) }}" class="btn btn-sm btn-danger" onclick="return confirm('คุณแน่ใจหรือไม่ที่จะลบไฟล์สำรองนี้?')"><i class="fas fa-trash"></i></a>
+                                                            </td>
+                                                        </tr>
+                                                        {% else %}
+                                                        <tr>
+                                                            <td colspan="4" class="text-center">ไม่พบข้อมูลสำรอง</td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

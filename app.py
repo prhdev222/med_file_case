@@ -1,12 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, abort, session
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import os
-from datetime import datetime, timezone
+import shutil
+import sqlite3
+import threading
+import logging
+from datetime import datetime, timezone, timedelta
 import mimetypes
 from dotenv import load_dotenv
+from backup_system import BackupSystem, start_scheduled_backup, run_backup_now
 
 def generate_safe_filename(original_filename, custom_filename=None, first_name=None, last_name=None):
     """สร้างชื่อไฟล์ที่ปลอดภัย"""
@@ -444,7 +450,10 @@ def admin_add_case():
                 db.session.add(audit)
                 db.session.commit()  # Commit audit log
                 
-                flash('เพิ่มผู้ป่วยที่เก็บข้อมูลสำเร็จ', 'success')
+                # สร้างข้อความแจ้งเตือนที่มีรายละเอียด
+                dept = db.session.get(Department, department_id)
+                success_message = f'✅ เพิ่มผู้ป่วยสำเร็จ: {first_name} {last_name} (HN: {hn}) - {dept.name}'
+                flash(success_message, 'success')
                 return redirect(url_for('admin_cases'))
             except Exception as e:
                 # หากเกิดข้อผิดพลาดในการสร้าง audit log ให้ rollback และลบไฟล์ที่อัปโหลด
@@ -852,6 +861,90 @@ def admin_dashboard():
         'total_cases': db.session.query(PatientCase).filter_by(is_deleted=False).count()
     }
     return render_template('admin/dashboard.html', stats=stats)
+
+@app.route('/api/notifications/recent-patients')
+@login_required
+def get_recent_patients():
+    """API สำหรับดึงข้อมูลผู้ป่วยใหม่ในช่วง 3 วันก่อน"""
+    try:
+        # คำนวณวันที่ 3 วันก่อน
+        three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
+        
+        # ดึงข้อมูลผู้ป่วยที่สร้างในช่วง 3 วันก่อน
+        recent_patients = db.session.query(PatientCase).join(Department).filter(
+            PatientCase.created_at >= three_days_ago,
+            PatientCase.is_deleted == False
+        ).order_by(PatientCase.created_at.desc()).all()
+        
+        # แปลงข้อมูลเป็น JSON
+        patients_data = []
+        for patient in recent_patients:
+            patients_data.append({
+                'id': patient.id,
+                'hn': patient.hn,
+                'first_name': patient.first_name,
+                'last_name': patient.last_name,
+                'department_name': patient.department.name,
+                'department_code': patient.department.code,
+                'created_at': patient.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'case_date': patient.case_date.strftime('%Y-%m-%d') if patient.case_date else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'count': len(patients_data),
+            'patients': patients_data
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/notifications/recent-patients-public')
+def get_recent_patients_public():
+    """API สำหรับผู้ใช้ทั่วไป - แสดงเฉพาะจำนวนและหน่วยงาน ไม่เปิดเผยข้อมูลส่วนตัว"""
+    try:
+        # คำนวณวันที่ 3 วันก่อน
+        three_days_ago = datetime.now(timezone.utc) - timedelta(days=3)
+        
+        # ดึงข้อมูลจำนวนผู้ป่วยใหม่แยกตามหน่วยงาน
+        department_stats = db.session.query(
+            Department.name.label('department_name'),
+            func.count(PatientCase.id).label('patient_count')
+        ).join(
+            PatientCase, PatientCase.department_id == Department.id
+        ).filter(
+            PatientCase.created_at >= three_days_ago,
+            PatientCase.is_deleted == False
+        ).group_by(
+            Department.id, Department.name
+        ).order_by(
+            func.count(PatientCase.id).desc()
+        ).all()
+        
+        # แปลงข้อมูลเป็น list of dictionaries
+        departments_data = []
+        total_count = 0
+        for dept in department_stats:
+            departments_data.append({
+                'department_name': dept.department_name,
+                'patient_count': dept.patient_count
+            })
+            total_count += dept.patient_count
+        
+        return jsonify({
+            'success': True,
+            'total_count': total_count,
+            'departments': departments_data
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/admin/departments')
 @login_required
@@ -1700,8 +1793,321 @@ def admin_delete_user(user_id):
     
     return redirect(url_for('admin_users'))
 
+# ตัวแปรสำหรับเก็บข้อมูลระบบสำรองข้อมูล
+backup_system_instance = None
+last_backup_time = None
+next_backup_time = None
+
+# ฟังก์ชันสำหรับเริ่มระบบสำรองข้อมูลอัตโนมัติ
+def init_backup_system():
+    """เริ่มระบบสำรองข้อมูลอัตโนมัติ"""
+    global backup_system_instance, last_backup_time, next_backup_time
+    
+    try:
+        # ตั้งค่าระยะเวลาในการสำรองข้อมูล (ชั่วโมง)
+        backup_interval = int(os.getenv('BACKUP_INTERVAL_HOURS', 24))
+        
+        # สร้างโฟลเดอร์สำหรับเก็บข้อมูลสำรอง
+        backup_dir = os.getenv('BACKUP_DIR', 'storage/backups')
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # เริ่มระบบสำรองข้อมูลอัตโนมัติ
+        backup_system_instance = start_scheduled_backup(backup_interval)
+        
+        # ลบข้อมูลสำรองที่เก่าเกิน 30 วัน
+        backup_system_instance.cleanup_old_backups(keep_days=30)
+        
+        # บันทึกเวลาสำรองข้อมูลล่าสุดและครั้งถัดไป
+        last_backup_time = datetime.now()
+        next_backup_time = last_backup_time + timedelta(hours=backup_interval)
+        
+        print(f"เริ่มระบบสำรองข้อมูลอัตโนมัติทุก {backup_interval} ชั่วโมง")
+        return backup_system_instance
+    except Exception as e:
+        print(f"เกิดข้อผิดพลาดในการเริ่มระบบสำรองข้อมูล: {str(e)}")
+        return None
+
+# ฟังก์ชันสำหรับรีสตาร์ทระบบสำรองข้อมูลอัตโนมัติ
+def restart_backup_system(interval_hours):
+    """รีสตาร์ทระบบสำรองข้อมูลอัตโนมัติด้วยระยะเวลาใหม่"""
+    global backup_system_instance, last_backup_time, next_backup_time
+    
+    # หยุดระบบสำรองข้อมูลเดิม
+    if backup_system_instance:
+        backup_system_instance.stop_scheduled_backup()
+    
+    # เริ่มระบบสำรองข้อมูลใหม่
+    backup_system_instance = BackupSystem(backup_interval=interval_hours)
+    backup_system_instance.start_scheduled_backup()
+    
+    # บันทึกเวลาสำรองข้อมูลล่าสุดและครั้งถัดไป
+    last_backup_time = datetime.now()
+    next_backup_time = last_backup_time + timedelta(hours=interval_hours)
+    
+    return backup_system_instance
+
+# เส้นทางสำหรับจัดการการสำรองข้อมูล
+@app.route('/admin/backups')
+@login_required
+def admin_backups():
+    """หน้าจัดการการสำรองข้อมูล"""
+    # ตรวจสอบโฟลเดอร์สำรองข้อมูล
+    backup_dir = os.getenv('BACKUP_DIR', 'storage/backups')
+    db_backup_dir = os.path.join(backup_dir, 'database')
+    uploads_backup_dir = os.path.join(backup_dir, 'uploads')
+    
+    # สร้างโฟลเดอร์ถ้ายังไม่มี
+    os.makedirs(db_backup_dir, exist_ok=True)
+    os.makedirs(uploads_backup_dir, exist_ok=True)
+    
+    # ดึงข้อมูลไฟล์สำรองฐานข้อมูล
+    database_backups = []
+    if os.path.exists(db_backup_dir):
+        for filename in os.listdir(db_backup_dir):
+            file_path = os.path.join(db_backup_dir, filename)
+            if os.path.isfile(file_path):
+                file_size = os.path.getsize(file_path)
+                file_date = datetime.fromtimestamp(os.path.getctime(file_path))
+                database_backups.append({
+                    'filename': filename,
+                    'date': file_date.strftime('%Y-%m-%d %H:%M:%S'),
+                    'size': f"{file_size / (1024 * 1024):.2f} MB"
+                })
+    
+    # เรียงลำดับตามวันที่ล่าสุด
+    database_backups.sort(key=lambda x: x['date'], reverse=True)
+    
+    # ดึงข้อมูลไฟล์สำรองอัปโหลด
+    uploads_backups = []
+    if os.path.exists(uploads_backup_dir):
+        for foldername in os.listdir(uploads_backup_dir):
+            folder_path = os.path.join(uploads_backup_dir, foldername)
+            if os.path.isdir(folder_path):
+                folder_date = datetime.fromtimestamp(os.path.getctime(folder_path))
+                file_count = sum([len(files) for _, _, files in os.walk(folder_path)])
+                uploads_backups.append({
+                    'foldername': foldername,
+                    'date': folder_date.strftime('%Y-%m-%d %H:%M:%S'),
+                    'file_count': file_count
+                })
+    
+    # เรียงลำดับตามวันที่ล่าสุด
+    uploads_backups.sort(key=lambda x: x['date'], reverse=True)
+    
+    # ดึงการตั้งค่าปัจจุบัน
+    backup_interval = int(os.getenv('BACKUP_INTERVAL_HOURS', 24))
+    keep_days = int(os.getenv('BACKUP_KEEP_DAYS', 30))
+    
+    # ข้อมูลเวลาสำรองข้อมูล
+    global last_backup_time, next_backup_time
+    last_backup_str = last_backup_time.strftime('%Y-%m-%d %H:%M:%S') if last_backup_time else "ยังไม่มีการสำรองข้อมูล"
+    next_backup_str = next_backup_time.strftime('%Y-%m-%d %H:%M:%S') if next_backup_time else "ไม่ได้กำหนด"
+    
+    return render_template('admin/backups.html',
+                           database_backups=database_backups,
+                           uploads_backups=uploads_backups,
+                           backup_interval=backup_interval,
+                           keep_days=keep_days,
+                           last_backup_time=last_backup_str,
+                           next_backup_time=next_backup_str)
+
+@app.route('/admin/backups/update-settings', methods=['POST'])
+@login_required
+def admin_update_backup_settings():
+    """อัปเดตการตั้งค่าการสำรองข้อมูล"""
+    try:
+        # รับค่าจากฟอร์ม
+        backup_interval = int(request.form.get('backup_interval', 24))
+        keep_days = int(request.form.get('keep_days', 30))
+        
+        # ตรวจสอบค่า
+        if backup_interval < 1 or backup_interval > 168:
+            flash('ระยะเวลาในการสำรองข้อมูลต้องอยู่ระหว่าง 1-168 ชั่วโมง', 'danger')
+            return redirect(url_for('admin_backups'))
+        
+        if keep_days < 1 or keep_days > 365:
+            flash('จำนวนวันที่เก็บข้อมูลสำรองต้องอยู่ระหว่าง 1-365 วัน', 'danger')
+            return redirect(url_for('admin_backups'))
+        
+        # อัปเดตค่าใน .env file
+        env_path = '.env'
+        env_vars = {}
+        
+        # อ่านไฟล์ .env ถ้ามี
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if '=' in line:
+                        key, value = line.strip().split('=', 1)
+                        env_vars[key] = value
+        
+        # อัปเดตค่า
+        env_vars['BACKUP_INTERVAL_HOURS'] = str(backup_interval)
+        env_vars['BACKUP_KEEP_DAYS'] = str(keep_days)
+        
+        # เขียนไฟล์ .env
+        with open(env_path, 'w') as f:
+            for key, value in env_vars.items():
+                f.write(f"{key}={value}\n")
+        
+        # รีสตาร์ทระบบสำรองข้อมูล
+        restart_backup_system(backup_interval)
+        
+        flash('อัปเดตการตั้งค่าการสำรองข้อมูลเรียบร้อยแล้ว', 'success')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาด: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_backups'))
+
+@app.route('/admin/backups/run-now', methods=['POST'])
+@login_required
+def admin_run_backup_now():
+    """สั่งให้ระบบทำการสำรองข้อมูลทันที"""
+    try:
+        # รับค่าจากฟอร์ม
+        backup_database = 'backup_database' in request.form
+        backup_uploads = 'backup_uploads' in request.form
+        
+        if not backup_database and not backup_uploads:
+            flash('กรุณาเลือกอย่างน้อยหนึ่งรายการ', 'warning')
+            return redirect(url_for('admin_backups'))
+        
+        # สร้าง instance ของระบบสำรองข้อมูล
+        backup_system = BackupSystem()
+        
+        # ดำเนินการสำรองข้อมูล
+        if backup_database:
+            if backup_system.backup_database():
+                flash('สำรองฐานข้อมูลเรียบร้อยแล้ว', 'success')
+            else:
+                flash('เกิดข้อผิดพลาดในการสำรองฐานข้อมูล', 'danger')
+        
+        if backup_uploads:
+            if backup_system.backup_uploads():
+                flash('สำรองไฟล์อัปโหลดเรียบร้อยแล้ว', 'success')
+            else:
+                flash('เกิดข้อผิดพลาดในการสำรองไฟล์อัปโหลด', 'danger')
+        
+        # อัปเดตเวลาสำรองข้อมูลล่าสุด
+        global last_backup_time
+        last_backup_time = datetime.now()
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาด: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_backups'))
+
+@app.route('/admin/backups/download/<backup_type>/<path:filename>')
+@login_required
+def admin_download_backup(backup_type, filename):
+    """ดาวน์โหลดไฟล์สำรองข้อมูล"""
+    try:
+        backup_dir = os.getenv('BACKUP_DIR', 'storage/backups')
+        
+        if backup_type == 'database':
+            file_path = os.path.join(backup_dir, 'database', filename)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                return send_file(file_path, as_attachment=True)
+        
+        flash('ไม่พบไฟล์สำรองข้อมูล', 'danger')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาด: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_backups'))
+
+@app.route('/admin/backups/restore/<backup_type>/<path:filename>')
+@login_required
+def admin_restore_backup(backup_type, filename):
+    """กู้คืนข้อมูลจากไฟล์สำรอง"""
+    try:
+        backup_dir = os.getenv('BACKUP_DIR', 'storage/backups')
+        
+        if backup_type == 'database':
+            # กู้คืนฐานข้อมูล
+            backup_path = os.path.join(backup_dir, 'database', filename)
+            db_path = os.getenv('DATABASE_URL', 'sqlite:///hospital.db').replace('sqlite:///', '')
+            
+            if os.path.exists(backup_path) and os.path.isfile(backup_path):
+                # สำรองฐานข้อมูลปัจจุบันก่อน
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                temp_backup = f"pre_restore_backup_{timestamp}.db"
+                temp_backup_path = os.path.join(backup_dir, 'database', temp_backup)
+                
+                # คัดลอกฐานข้อมูลปัจจุบัน
+                shutil.copy2(db_path, temp_backup_path)
+                
+                # กู้คืนฐานข้อมูล
+                source = sqlite3.connect(backup_path)
+                destination = sqlite3.connect(db_path)
+                
+                with destination:
+                    source.backup(destination)
+                
+                source.close()
+                destination.close()
+                
+                flash('กู้คืนฐานข้อมูลเรียบร้อยแล้ว', 'success')
+            else:
+                flash('ไม่พบไฟล์สำรองข้อมูล', 'danger')
+        
+        elif backup_type == 'uploads':
+            # กู้คืนไฟล์อัปโหลด
+            backup_path = os.path.join(backup_dir, 'uploads', filename)
+            upload_dir = os.getenv('UPLOAD_FOLDER', 'storage/uploads')
+            
+            if os.path.exists(backup_path) and os.path.isdir(backup_path):
+                # สำรองไฟล์ปัจจุบันก่อน
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                temp_backup = f"pre_restore_backup_{timestamp}"
+                temp_backup_path = os.path.join(backup_dir, 'uploads', temp_backup)
+                
+                # คัดลอกไฟล์ปัจจุบัน
+                shutil.copytree(upload_dir, temp_backup_path, dirs_exist_ok=True)
+                
+                # กู้คืนไฟล์อัปโหลด
+                shutil.copytree(backup_path, upload_dir, dirs_exist_ok=True)
+                
+                flash('กู้คืนไฟล์อัปโหลดเรียบร้อยแล้ว', 'success')
+            else:
+                flash('ไม่พบโฟลเดอร์สำรองข้อมูล', 'danger')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาดในการกู้คืนข้อมูล: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_backups'))
+
+@app.route('/admin/backups/delete/<backup_type>/<path:filename>')
+@login_required
+def admin_delete_backup(backup_type, filename):
+    """ลบไฟล์สำรองข้อมูล"""
+    try:
+        backup_dir = os.getenv('BACKUP_DIR', 'storage/backups')
+        
+        if backup_type == 'database':
+            # ลบไฟล์สำรองฐานข้อมูล
+            file_path = os.path.join(backup_dir, 'database', filename)
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                os.remove(file_path)
+                flash('ลบไฟล์สำรองฐานข้อมูลเรียบร้อยแล้ว', 'success')
+            else:
+                flash('ไม่พบไฟล์สำรองข้อมูล', 'danger')
+        
+        elif backup_type == 'uploads':
+            # ลบโฟลเดอร์สำรองไฟล์อัปโหลด
+            folder_path = os.path.join(backup_dir, 'uploads', filename)
+            if os.path.exists(folder_path) and os.path.isdir(folder_path):
+                shutil.rmtree(folder_path)
+                flash('ลบโฟลเดอร์สำรองไฟล์อัปโหลดเรียบร้อยแล้ว', 'success')
+            else:
+                flash('ไม่พบโฟลเดอร์สำรองข้อมูล', 'danger')
+    except Exception as e:
+        flash(f'เกิดข้อผิดพลาดในการลบไฟล์สำรอง: {str(e)}', 'danger')
+    
+    return redirect(url_for('admin_backups'))
+
 if __name__ == '__main__':
     init_db()
+    
+    # เริ่มระบบสำรองข้อมูลอัตโนมัติ
+    backup_system = init_backup_system()
     
     # ใช้ environment variables สำหรับ host และ port
     host = os.getenv('HOST', '0.0.0.0')
