@@ -7,6 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
 </head>
 <body>
     <!-- Navigation -->
@@ -23,11 +24,34 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('home') }}">หน้าแรก</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('stats') }}">สถิติผู้ป่วย</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav">
                     {% if current_user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('admin_dashboard') }}">แดชบอร์ด</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-cog me-1"></i>จัดการระบบ
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">
+                                    <i class="fas fa-tachometer-alt me-2"></i>แดชบอร์ดหลัก
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin_cases') }}">
+                                    <i class="fas fa-users me-2"></i>จัดการข้อมูลผู้ป่วย
+                                </a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin_guidelines') }}">
+                                    <i class="fas fa-file-medical me-2"></i>จัดการ Guidelines
+                                </a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin_knowledge') }}">
+                                    <i class="fas fa-book-medical me-2"></i>จัดการความรู้
+                                </a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin_activities') }}">
+                                    <i class="fas fa-calendar-alt me-2"></i>จัดการกิจกรรม
+                                </a></li>
+                            </ul>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="{{ url_for('admin_logout') }}">ออกจากระบบ</a>
@@ -81,6 +105,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block extra_js %}{% endblock %}
     {% block scripts %}{% endblock %}
 </body>
 </html>

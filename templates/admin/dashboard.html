@@ -76,6 +76,22 @@
             </div>
         </div>
     </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="mb-0">{{ stats.total_cases }}</h4>
+                        <p class="mb-0">ผู้ป่วยใหม่</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Quick Actions -->
@@ -97,6 +113,12 @@
                         <a href="{{ url_for('admin_guidelines') }}" class="btn btn-success w-100 h-100 d-flex flex-column align-items-center justify-content-center">
                             <i class="fas fa-file-medical fa-2x mb-2"></i>
                             <span>จัดการ Guidelines</span>
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{{ url_for('admin_cases') }}" class="btn btn-danger w-100 h-100 d-flex flex-column align-items-center justify-content-center">
+                            <i class="fas fa-users fa-2x mb-2"></i>
+                            <span>จัดการข้อมูลผู้ป่วย</span>
                         </a>
                     </div>
                     <div class="col-md-3">

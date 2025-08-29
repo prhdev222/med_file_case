@@ -64,7 +64,26 @@
     {% endfor %}
 </div>
 
-<div class="row mt-5">
+        <div class="row mt-5">
+            <div class="col-12">
+                <div class="card bg-primary text-white">
+                    <div class="card-body text-center">
+                                            <h4><i class="fas fa-chart-bar me-2"></i>สถิติผู้ป่วยที่เก็บข้อมูล</h4>
+                    <p class="mb-3">ดูสถิติและแนวโน้มผู้ป่วยที่เก็บข้อมูลของแต่ละหน่วยงาน</p>
+                        <div class="d-flex justify-content-center gap-3">
+                            <a href="{{ url_for('stats') }}" class="btn btn-light btn-lg">
+                                <i class="fas fa-chart-line me-2"></i>ดูสถิติ
+                            </a>
+                            <a href="{{ url_for('admin_cases_login') }}" class="btn btn-outline-light btn-lg">
+                                <i class="fas fa-users me-2"></i>จัดการข้อมูลผู้ป่วย
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+<div class="row mt-4">
     <div class="col-12">
         <div class="card bg-light">
             <div class="card-body text-center">

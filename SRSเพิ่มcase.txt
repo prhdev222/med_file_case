@@ -1,0 +1,563 @@
+# Software Requirements Specification (SRS)ต่อขยาย
+## Case Management Module (Simplified Version)
+### ระบบจัดการไฟล์แผนกอายุรกรรม โรงพยาบาลสงฆ์
+
+---
+
+## 1. บทนำ
+
+### 1.1 วัตถุประสงค์
+เอกสารนี้จัดทำขึ้นเพื่อกำหนดข้อกำหนดทางซอฟต์แวร์สำหรับ **Case Management Module (เวอร์ชันง่าย)** ที่เป็นส่วนขยายของระบบจัดการไฟล์แผนกอายุรกรรมเดิม เพื่อเก็บสถิติ cases ใหม่และแสดงผลใน analytics dashboard
+
+### 1.2 ขอบเขตของ Module
+- ระบบบันทึก cases ใหม่ (เฉพาะข้อมูลพื้นฐาน)
+- ระบบ analytics dashboard สำหรับสถิติผู้ป่วย
+- ระบบแสดงผลสาธารณะ (ไม่ต้อง login)
+- ระบบจัดการสำหรับ admin เท่านั้น
+
+### 1.3 ผู้ใช้งานเป้าหมาย
+- **ผู้ใช้ทั่วไป (Public)** - ดู analytics dashboard (ไม่เห็น HN/ชื่อ)
+- **Admin** - บันทึกและจัดการข้อมูล cases (เห็นข้อมูลส่วนตัว)
+- **หน่วยงาน** - เตรียมพร้อมสำหรับ integration ในอนาคต
+
+### 1.4 หลักการออกแบบ
+- **เริ่มต้นง่าย** - เก็บเฉพาะข้อมูลจำเป็น
+- **ขยายได้** - เตรียมพร้อมสำหรับ integration ในอนาคต
+- **ความปลอดภัย** - ปกป้องข้อมูลส่วนบุคคล
+- **เข้าถึงได้** - dashboard สาธารณะ
+
+---
+
+## 2. คำอธิบายทั่วไป
+
+### 2.1 ภาพรวมของระบบ
+Case Management Module เป็นส่วนขยายเบาๆ ที่มุ่งเน้น:
+- บันทึก new cases พื้นฐาน (HN + วันที่ + หน่วยงาน)
+- แสดงสถิติแบบ aggregated (ไม่เปิดเผยข้อมูลส่วนตัว)
+- เตรียมความพร้อมสำหรับการขยายในอนาคต
+
+### 2.2 การเชื่อมต่อกับระบบเดิม
+- **Shared Navigation** - เพิ่มเมนู "สถิติผู้ป่วย" ในระบบเดิม
+- **Department Integration** - ใช้ข้อมูล departments จากระบบเดิม
+- **Admin Access** - เฉพาะ admin เข้าได้หน้าจัดการ
+
+---
+
+## 3. ข้อกำหนดเฉพาะ (Functional Requirements)
+
+### 3.1 การบันทึก Cases (Admin เท่านั้น)
+
+#### 3.1.1 ข้อมูลพื้นฐาน
+- **FR-001**: ระบบต้องสามารถบันทึก HN ผู้ป่วยได้
+- **FR-002**: ระบบต้องสามารถเลือกหน่วยงานได้
+- **FR-003**: ระบบต้องสามารถบันทึกวันที่ของ case ได้
+- **FR-004**: ระบบต้องสามารถระบุว่าเป็น "new case" ได้
+- **FR-005**: ระบบต้องสามารถเพิ่มหมายเหตุสั้นๆ ได้ (optional)
+
+#### 3.1.2 การจัดการข้อมูล
+- **FR-006**: Admin สามารถแก้ไขข้อมูล case ได้
+- **FR-007**: Admin สามารถลบข้อมุล case ได้
+- **FR-008**: ระบบต้องบันทึกว่าใครเป็นคนบันทึก (audit)
+- **FR-009**: ระบบต้องป้องกันการบันทึก HN ซ้ำในวันเดียวกัน
+
+### 3.2 Public Analytics Dashboard
+
+#### 3.2.1 สถิติหลัก (ไม่เปิดเผย PII)
+- **FR-010**: แสดงจำนวน new cases รายสัปดาห์
+- **FR-011**: แสดงจำนวน new cases รายเดือน
+- **FR-012**: แสดงจำนวน new cases ราย 3เดือน
+- **FR-013**: แสดงจำนวน new cases ราย 6เดือน
+- **FR-014**: แสดงจำนวน new cases รายปี
+- **FR-015**: เปรียบเทียบกับช่วงเวลาก่อนหน้า (% change)
+
+#### 3.2.2 การกระจายตามหน่วยงาน
+- **FR-016**: แสดงสัดส่วน cases แต่ละหน่วยงาน (pie chart)
+- **FR-017**: แสดง bar chart เปรียบเทียบระหว่างหน่วยงาน
+- **FR-018**: แสดง trends ของแต่ละหน่วยงาน (line chart)
+
+#### 3.2.3 การใช้งาน Dashboard
+- **FR-019**: ผู้ใช้ทั่วไปเข้าถึงได้โดยไม่ต้อง login
+- **FR-020**: สามารถเลือกช่วงเวลาได้ (dropdown)
+- **FR-021**: สามารถเลือกหน่วยงานเฉพาะได้ (optional filter)
+- **FR-022**: แสดงวันที่อัปเดตล่าสุด
+
+### 3.3 Admin Management
+
+#### 3.3.1 หน้าจัดการ Cases
+- **FR-023**: แสดงรายการ cases ทั้งหมด (รวม HN)
+- **FR-024**: ค้นหาโดย HN ได้
+- **FR-025**: กรองตามหน่วยงานและวันที่ได้
+- **FR-026**: แสดงจำนวน total cases
+
+#### 3.3.2 การ Export ข้อมูล
+- **FR-027**: Admin สามารถ export ข้อมูลเป็น CSV ได้
+- **FR-028**: Export file ต้องมี HN สำหรับ admin
+- **FR-029**: สามารถเลือกช่วงวันที่สำหรับ export ได้
+
+### 3.4 Future Integration Preparation
+
+#### 3.4.1 HN Linking
+- **FR-030**: เตรียม database schema สำหรับ external links
+- **FR-031**: เก็บ HN ในรูปแบบที่ linkable ได้
+- **FR-032**: เตรียม API endpoints สำหรับ external systems
+
+---
+
+## 4. ข้อกำหนดด้านเทคนิค (Non-Functional Requirements)
+
+### 4.1 ความต้องการด้านประสิทธิภาพ
+- **NFR-001**: Dashboard โหลดได้ในเวลาไม่เกิน 3 วินาที
+- **NFR-002**: รองรับผู้ใช้พร้อมกันได้อย่างน้อย 100 คน (public access)
+- **NFR-003**: การบันทึก case ใหม่ใช้เวลาไม่เกิน 2 วินาที
+
+### 4.2 ความต้องการด้านความปลอดภัย
+- **NFR-004**: Public dashboard ต้องไม่แสดงข้อมูลส่วนบุคคล
+- **NFR-005**: HN ต้องถูกเข้ารหัสในฐานข้อมูล
+- **NFR-006**: Admin functions ต้องมี authentication
+- **NFR-007**: มี audit trail สำหรับการแก้ไข/ลบข้อมูล
+
+### 4.3 ความต้องการด้านการใช้งาน
+- **NFR-008**: Interface ต้องใช้งานง่าย (minimal clicks)
+- **NFR-009**: รองรับ mobile devices (responsive)
+- **NFR-010**: ใช้ภาษาไทยในส่วน UI
+
+### 4.4 ความต้องการด้านข้อมูล
+- **NFR-011**: เก็บข้อมูลได้อย่างน้อย 10,000 cases
+- **NFR-012**: Backup อัตโนมัติรายวัน
+- **NFR-013**: Data retention ไม่น้อยกว่า 3 ปี
+
+---
+
+## 5. Database Schema (Simplified)
+
+### 5.1 ตารางหลัก
+
+#### 5.1.1 patient_cases_simple
+```sql
+CREATE TABLE patient_cases_simple (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hn_encrypted TEXT NOT NULL,        -- เข้ารหัส HN
+    department_id INTEGER NOT NULL,    -- FK to departments
+    case_date DATE NOT NULL,
+    case_type VARCHAR(20) DEFAULT 'new_case',
+    notes TEXT,                        -- หมายเหตุสั้นๆ (optional)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER,                -- FK to admin_users
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    
+    FOREIGN KEY (department_id) REFERENCES departments(id),
+    FOREIGN KEY (created_by) REFERENCES admin_users(id),
+    UNIQUE(hn_encrypted, case_date)    -- ป้องกัน duplicate
+);
+
+-- Indexes for performance
+CREATE INDEX idx_simple_cases_dept_date ON patient_cases_simple(department_id, case_date);
+CREATE INDEX idx_simple_cases_date ON patient_cases_simple(case_date);
+```
+
+#### 5.1.2 case_audit_simple
+```sql
+CREATE TABLE case_audit_simple (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id INTEGER NOT NULL,
+    action VARCHAR(20) NOT NULL,       -- 'CREATE', 'UPDATE', 'DELETE'
+    user_id INTEGER,
+    ip_address VARCHAR(45),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (case_id) REFERENCES patient_cases_simple(id),
+    FOREIGN KEY (user_id) REFERENCES admin_users(id)
+);
+```
+
+### 5.2 Views สำหรับ Analytics
+
+#### 5.2.1 public_case_stats
+```sql
+CREATE VIEW public_case_stats AS
+SELECT 
+    d.name as department_name,
+    d.code as department_code,
+    DATE(pcs.case_date) as case_date,
+    COUNT(*) as case_count,
+    strftime('%Y-%W', pcs.case_date) as year_week,
+    strftime('%Y-%m', pcs.case_date) as year_month
+FROM patient_cases_simple pcs
+JOIN departments d ON pcs.department_id = d.id
+WHERE pcs.is_deleted = FALSE
+GROUP BY d.id, DATE(pcs.case_date);
+```
+
+#### 5.2.2 weekly_summary
+```sql
+CREATE VIEW weekly_summary AS
+SELECT 
+    d.name as department_name,
+    d.code as department_code,
+    strftime('%Y-W%W', pcs.case_date) as week_year,
+    COUNT(*) as total_cases
+FROM patient_cases_simple pcs
+JOIN departments d ON pcs.department_id = d.id
+WHERE pcs.is_deleted = FALSE
+GROUP BY d.id, strftime('%Y-W%W', pcs.case_date);
+```
+
+---
+
+## 6. API Endpoints (Simple)
+
+### 6.1 Public APIs (No Authentication)
+
+#### 6.1.1 Dashboard Statistics
+```
+GET /api/public/stats?period=month&department=all
+Response: {
+  "total_cases": 150,
+  "period": "month",
+  "previous_total": 130,
+  "change_percent": 15.4,
+  "departments": [
+    {"code": "dm", "name": "หน่วยเบาหวาน", "count": 45},
+    {"code": "ckd", "name": "หน่วยไตเรื้อรัง", "count": 30}
+  ]
+}
+```
+
+#### 6.1.2 Trends Data
+```
+GET /api/public/trends?period=6months&department=dm
+Response: {
+  "labels": ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06"],
+  "data": [25, 30, 28, 35, 40, 45],
+  "department": "dm"
+}
+```
+
+### 6.2 Admin APIs (Authentication Required)
+
+#### 6.2.1 Create Case
+```
+POST /api/admin/cases
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "hn": "1234567",
+  "department_id": 1,
+  "case_date": "2024-01-15",
+  "notes": "ผู้ป่วยใหม่"
+}
+```
+
+#### 6.2.2 List Cases (with PII)
+```
+GET /api/admin/cases?limit=50&offset=0&department=dm
+Authorization: Bearer <token>
+
+Response: {
+  "cases": [
+    {
+      "id": 1,
+      "hn": "1234567",
+      "department_name": "หน่วยเบาหวาน", 
+      "case_date": "2024-01-15",
+      "notes": "ผู้ป่วยใหม่"
+    }
+  ],
+  "total": 150
+}
+```
+
+---
+
+## 7. User Interface Specifications
+
+### 7.1 Public Dashboard
+
+#### 7.1.1 หน้าแรก (ไม่ต้อง Login)
+```
+📊 สถิติผู้ป่วยใหม่ - แผนกอายุรกรรม
+┌─────────────────────────────────────┐
+│ 🗓️ ช่วงเวลา: [รายเดือน ▼]          │
+│ 🏥 หน่วยงาน: [ทั้งหมด ▼]           │
+└─────────────────────────────────────┘
+
+📈 สถิติรวม (เดือนนี้)
+┌─────┬─────┬─────┬─────┐
+│ 📊  │ 👥  │ 📈  │ 🔄  │
+│Total│ 150 │+15%│ 📅  │
+│Cases│     │     │     │
+└─────┴─────┴─────┴─────┘
+
+🥧 การกระจายตามหน่วยงาน
+[Pie Chart]
+
+📈 แนวโน้ม 6 เดือนย้อนหลัง  
+[Line Chart]
+
+📊 เปรียบเทียบหน่วยงาน
+[Bar Chart]
+
+อัปเดตล่าสุด: 15/01/2024 10:30
+```
+
+#### 7.1.2 Mobile Version
+- Stack layout แนวตั้ง
+- Swipe gesture สำหรับ charts
+- Touch-friendly filters
+- Simplified navigation
+
+### 7.2 Admin Panel
+
+#### 7.2.1 หน้าจัดการ Cases
+```
+🔐 Admin - จัดการข้อมูลผู้ป่วย
+
+➕ เพิ่ม Case ใหม่
+
+🔍 ค้นหา: [_____________] 🏥 หน่วยงาน: [ทั้งหมด ▼]
+
+📋 รายการ Cases (รวม 150 รายการ)
+┌────┬──────────┬──────────────┬────────────┬─────────┐
+│ ID │ HN       │ หน่วยงาน     │ วันที่      │ Actions │
+├────┼──────────┼──────────────┼────────────┼─────────┤
+│ 1  │ 1234567  │ หน่วยเบาหวาน │ 15/01/2024 │ ✏️ 🗑️    │
+│ 2  │ 1234568  │ หน่วยไต      │ 14/01/2024 │ ✏️ 🗑️    │
+└────┴──────────┴──────────────┴────────────┴─────────┘
+
+📤 Export to CSV
+```
+
+#### 7.2.2 เพิ่ม Case ใหม่
+```
+➕ เพิ่มผู้ป่วยใหม่
+
+HN: [___________] *
+หน่วยงาน: [เลือกหน่วยงาน ▼] *
+วันที่: [15/01/2024] *
+หมายเหตุ: [_________________]
+
+[💾 บันทึก] [❌ ยกเลิก]
+```
+
+---
+
+## 8. Security Implementation
+
+### 8.1 Data Protection
+
+#### 8.1.1 HN Encryption
+```python
+import hashlib
+from cryptography.fernet import Fernet
+
+class HNEncryption:
+    def __init__(self, key):
+        self.cipher = Fernet(key)
+    
+    def encrypt_hn(self, hn):
+        """เข้ารหัส HN สำหรับเก็บในฐานข้อมูล"""
+        return self.cipher.encrypt(hn.encode()).decode()
+    
+    def decrypt_hn(self, encrypted_hn):
+        """ถอดรหัส HN สำหรับ admin"""
+        return self.cipher.decrypt(encrypted_hn.encode()).decode()
+```
+
+#### 8.1.2 Public Data Sanitization
+```python
+def get_public_stats(period, department=None):
+    """ข้อมูลสาธารณะ - ไม่มี PII"""
+    query = db.session.query(
+        Department.code,
+        Department.name,
+        func.count(PatientCaseSimple.id).label('count')
+    ).join(PatientCaseSimple)
+    
+    # ไม่ return HN หรือข้อมูลส่วนตัว
+    if department:
+        query = query.filter(Department.code == department)
+    
+    return query.group_by(Department.id).all()
+```
+
+### 8.2 Access Control
+
+#### 8.2.1 Route Protection
+```python
+from functools import wraps
+from flask_login import current_user
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Usage
+@app.route('/admin/cases')
+@admin_required
+def admin_cases():
+    # เฉพาะ admin เท่านั้น
+    pass
+
+@app.route('/api/public/stats')  
+def public_stats():
+    # ทุกคนเข้าได้ แต่ไม่เห็น PII
+    pass
+```
+
+---
+
+## 9. Implementation Phases
+
+### 9.1 Phase 1: Core Functionality (2-3 สัปดาห์)
+
+#### Week 1:
+- ✅ Database schema setup
+- ✅ Basic CRUD for cases (admin only)
+- ✅ HN encryption implementation
+
+#### Week 2: 
+- ✅ Public dashboard (basic charts)
+- ✅ Time period filtering
+- ✅ Department filtering
+
+#### Week 3:
+- ✅ Admin panel UI
+- ✅ Export functionality
+- ✅ Basic testing
+
+### 9.2 Phase 2: Enhancement (1-2 สัปดาห์)
+
+#### Week 4:
+- ✅ Mobile responsive design
+- ✅ Performance optimization
+- ✅ Security hardening
+
+#### Week 5 (Optional):
+- ✅ Advanced charts
+- ✅ User training
+- ✅ Documentation
+
+### 9.3 Phase 3: Future Preparation
+
+- 📅 API endpoints สำหรับ external integration
+- 📅 HN linking infrastructure
+- 📅 Migration path planning
+
+---
+
+## 10. Testing Strategy
+
+### 10.1 Functional Testing
+
+#### 10.1.1 Public Dashboard
+- ✅ Dashboard loads without login
+- ✅ No PII displayed
+- ✅ Charts render correctly
+- ✅ Filters work properly
+- ✅ Mobile responsive
+
+#### 10.1.2 Admin Functions
+- ✅ Admin login required
+- ✅ Cases CRUD operations
+- ✅ HN encryption/decryption
+- ✅ Export functionality
+- ✅ Audit trail logging
+
+### 10.2 Security Testing
+- ✅ No PII in public APIs
+- ✅ HN encryption working
+- ✅ Admin authentication
+- ✅ SQL injection prevention
+- ✅ XSS protection
+
+### 10.3 Performance Testing
+- ✅ Dashboard load < 3 seconds
+- ✅ 100 concurrent public users
+- ✅ Database query performance
+- ✅ Mobile performance
+
+---
+
+## 11. Deployment และ Maintenance
+
+### 11.1 Deployment Checklist
+- [ ] Database migration script
+- [ ] Encryption key generation
+- [ ] Admin user setup
+- [ ] Public route testing
+- [ ] Backup configuration
+
+### 11.2 Monitoring
+- Database size tracking
+- Public dashboard usage
+- Admin activity logging
+- Performance metrics
+- Error logging
+
+### 11.3 Backup Strategy
+```bash
+#!/bin/bash
+# Daily backup script
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+cp hospital_system.db "backup/cases_${TIMESTAMP}.db"
+
+# Keep last 30 days
+find backup/ -name "cases_*.db" -mtime +30 -delete
+```
+
+---
+
+## 12. Success Criteria
+
+### 12.1 Functional Success
+- ✅ Public dashboard accessible without login
+- ✅ No PII visible to public users
+- ✅ Admin can manage all cases
+- ✅ HN data properly encrypted
+- ✅ Export functionality working
+
+### 12.2 Performance Success
+- ✅ Dashboard loads < 3 seconds
+- ✅ Supports 100+ concurrent users
+- ✅ Mobile responsive
+- ✅ 99.9% uptime
+
+### 12.3 Security Success
+- ✅ Zero PII leakage
+- ✅ Proper authentication
+- ✅ Audit trail complete
+- ✅ Data encryption working
+
+---
+
+## 13. Future Integration Plan
+
+### 13.1 Department Integration Points
+```python
+# Future API for department systems
+@app.route('/api/integration/cases/<hn>')
+@department_api_key_required
+def get_case_by_hn(hn):
+    """สำหรับหน่วยงานเชื่อมต่อในอนาคต"""
+    # Return basic case info for linking
+    # Each department builds their own detailed system
+    pass
+```
+
+### 13.2 Expansion Possibilities
+- **Detailed Clinical Data** - แต่ละหน่วยสร้างระบบย่อย
+- **Integration APIs** - link จาก HN ไประบบย่อย
+- **Advanced Analytics** - เพิ่ม ML/AI ในอนาคต
+- **Multi-hospital** - ขยายไปโรงพยาบาลอื่น
+
+---
+
+**Document Version**: 1.0 (Simplified)  
+**Target Timeline**: 3-4 สัปดาห์  
+**Complexity Level**: ⭐⭐ (เบา - ปานกลาง)  
+**Future-ready**: ✅ (พร้อมขยาย)

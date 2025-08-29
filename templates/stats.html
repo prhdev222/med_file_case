@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+
+{% block title %}สถิติผู้ป่วยที่เก็บข้อมูล - แผนกอายุรกรรม{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.css">
+<style>
+.stats-card {
+    transition: transform 0.2s;
+}
+.stats-card:hover {
+    transform: translateY(-5px);
+}
+.stat-number {
+    font-size: 2.5rem;
+    font-weight: bold;
+}
+.change-positive {
+    color: #28a745;
+}
+.change-negative {
+    color: #dc3545;
+}
+.chart-container {
+    position: relative;
+    height: 400px;
+    margin: 20px 0;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="display-5 text-primary">
+                                                        <i class="fas fa-chart-bar me-3"></i>สถิติผู้ป่วยที่เก็บข้อมูล
+                    </h1>
+                    <p class="lead text-muted">แผนกอายุรกรรม โรงพยาบาลสงฆ์</p>
+                </div>
+                <div class="text-end">
+                    <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-left me-2"></i>กลับหน้าหลัก
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <label for="periodSelect" class="form-label">
+                        <i class="fas fa-calendar me-2"></i>ช่วงเวลา
+                    </label>
+                    <select id="periodSelect" class="form-select">
+                        <option value="week">รายสัปดาห์</option>
+                        <option value="month" selected>รายเดือน</option>
+                        <option value="3months">3 เดือน</option>
+                        <option value="6months">6 เดือน</option>
+                        <option value="year">รายปี</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <label for="departmentSelect" class="form-label">
+                        <i class="fas fa-hospital me-2"></i>หน่วยงาน
+                    </label>
+                    <select id="departmentSelect" class="form-select">
+                        <option value="all">ทั้งหมด</option>
+                        <option value="dm">หน่วยเบาหวาน</option>
+                        <option value="ckd">หน่วยไตเรื้อรัง</option>
+                        <option value="copd">หน่วยโรคปอดอุดกั้นเรื้อรัง</option>
+                        <option value="htn">หน่วยความดันโลหิตสูง</option>
+                        <option value="obesity">หน่วยโรคอ้วน</option>
+                        <option value="rheumato">หน่วยรูมาติก</option>
+                        <option value="sepsis">หน่วยภาวะติดเชื้อในกระแสเลือด</option>
+                        <option value="stemi_nstemi">หน่วยโรคหัวใจขาดเลือด</option>
+                        <option value="stroke">หน่วยโรคหลอดเลือดสมอง</option>
+                        <option value="tb">หน่วยวัณโรค</option>
+                        <option value="ugib">หน่วยเลือดออกทางเดินอาหารส่วนบน</option>
+                        <option value="chemo">หน่วยเคมีบำบัด</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stats-card bg-primary text-white">
+                <div class="card-body text-center">
+                    <i class="fas fa-users fa-2x mb-3"></i>
+                                                    <h5>ผู้ป่วยที่เก็บข้อมูล</h5>
+                    <div class="stat-number" id="totalCases">{{ stats.total_cases }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card bg-success text-white">
+                <div class="card-body text-center">
+                    <i class="fas fa-file fa-2x mb-3"></i>
+                    <h5>มีไฟล์แนบ</h5>
+                    <div class="stat-number" id="changePercent">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card bg-info text-white">
+                <div class="card-body text-center">
+                    <i class="fas fa-link fa-2x mb-3"></i>
+                    <h5>มีลิงก์ภายนอก</h5>
+                    <div class="stat-number" id="periodDisplay">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card bg-warning text-white">
+                <div class="card-body text-center">
+                    <i class="fas fa-clock fa-2x mb-3"></i>
+                    <h5>อัปเดตล่าสุด</h5>
+                    <div class="stat-number" id="lastUpdate">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-pie me-2"></i>การกระจายตามหน่วยงาน</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="departmentPieChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-bar me-2"></i>เปรียบเทียบระหว่างหน่วยงาน</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="departmentBarChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-line me-2"></i>แนวโน้ม 6 เดือนย้อนหลัง</h5>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="trendLineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Department Details -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-list me-2"></i>รายละเอียดตามหน่วยงาน</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="departmentTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>หน่วยงาน</th>
+                                    <th>จำนวนผู้ป่วยที่เก็บข้อมูล</th>
+                                    <th>สัดส่วน</th>
+                                </tr>
+                            </thead>
+                            <tbody id="departmentTableBody">
+                                {% if stats.dept_stats %}
+                                    {% for dept in stats.dept_stats %}
+                                    <tr>
+                                        <td><strong>{{ dept.name }}</strong></td>
+                                        <td><span class="badge bg-primary">{{ dept.case_count }}</span></td>
+                                        <td>{{ "%.1f"|format((dept.case_count / stats.total_cases * 100) if stats.total_cases > 0 else 0) }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr><td colspan="3" class="text-center text-muted">ไม่พบข้อมูล</td></tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+let charts = {};
+let currentPeriod = 'month';
+let currentDepartment = 'all';
+
+// Initialize charts
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+    loadStats();
+    
+    // Event listeners
+    document.getElementById('periodSelect').addEventListener('change', function() {
+        currentPeriod = this.value;
+        loadStats();
+    });
+    
+    document.getElementById('departmentSelect').addEventListener('change', function() {
+        currentDepartment = this.value;
+        loadStats();
+    });
+});
+
+function initializeCharts() {
+    console.log('Initializing charts...'); // Debug log
+    
+    // Pie Chart
+    const pieCtx = document.getElementById('departmentPieChart');
+    if (pieCtx) {
+        charts.pie = new Chart(pieCtx.getContext('2d'), {
+            type: 'pie',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    backgroundColor: [
+                        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                        '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF',
+                        '#4BC0C0', '#FF6384', '#36A2EB', '#FFCE56'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        console.log('Pie chart initialized successfully');
+    } else {
+        console.error('Pie chart canvas not found');
+    }
+
+    // Bar Chart
+    const barCtx = document.getElementById('departmentBarChart');
+    if (barCtx) {
+        charts.bar = new Chart(barCtx.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                                        datasets: [{
+                            label: 'จำนวนผู้ป่วยที่เก็บข้อมูล',
+                            data: [],
+                            backgroundColor: '#36A2EB',
+                            borderColor: '#2693e6',
+                            borderWidth: 1
+                        }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        console.log('Bar chart initialized successfully');
+    } else {
+        console.error('Bar chart canvas not found');
+    }
+
+    // Line Chart
+    const lineCtx = document.getElementById('trendLineChart');
+    if (lineCtx) {
+        charts.line = new Chart(lineCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                                        datasets: [{
+                            label: 'จำนวนผู้ป่วยที่เก็บข้อมูล',
+                            data: [],
+                            borderColor: '#FF6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+        console.log('Line chart initialized successfully');
+    } else {
+        console.error('Line chart canvas not found');
+    }
+    
+    console.log('All charts initialized:', charts); // Debug log
+}
+
+function loadStats() {
+    // ใช้ข้อมูลจาก backend ที่ส่งมาแล้ว
+    let deptStats = [];
+    let monthlyStats = [];
+    
+    // Debug: แสดงข้อมูลดิบจาก template
+    console.log('Raw dept_stats from template:', '{{ stats.dept_stats | tojson | safe }}');
+    console.log('Raw monthly_stats from template:', '{{ stats.monthly_stats | tojson | safe }}');
+    console.log('Raw total_cases from template:', '{{ stats.total_cases }}');
+    
+    try {
+        // ตรวจสอบและแปลงข้อมูล dept_stats
+        const deptStatsRaw = '{{ stats.dept_stats | tojson | safe }}';
+        console.log('deptStatsRaw:', deptStatsRaw);
+        
+        if (deptStatsRaw && deptStatsRaw !== '[]' && deptStatsRaw !== 'None' && deptStatsRaw !== 'null') {
+            deptStats = JSON.parse(deptStatsRaw);
+            console.log('Parsed deptStats:', deptStats);
+        } else {
+            console.log('deptStatsRaw is empty or None');
+        }
+        
+        // ตรวจสอบและแปลงข้อมูล monthly_stats
+        const monthlyStatsRaw = '{{ stats.monthly_stats | tojson | safe }}';
+        console.log('monthlyStatsRaw:', monthlyStatsRaw);
+        
+        if (monthlyStatsRaw && monthlyStatsRaw !== '[]' && monthlyStatsRaw !== 'None' && monthlyStatsRaw !== 'null') {
+            monthlyStats = JSON.parse(monthlyStatsRaw);
+            console.log('Parsed monthlyStats:', monthlyStats);
+        } else {
+            console.log('monthlyStatsRaw is empty or None');
+        }
+    } catch (e) {
+        console.error('Error parsing stats data:', e);
+        deptStats = [];
+        monthlyStats = [];
+    }
+    
+    const data = {
+        total_cases: parseInt('{{ stats.total_cases }}') || 0,
+        departments: deptStats,
+        monthly_data: monthlyStats,
+        cases_with_files: parseInt('{{ stats.cases_with_files }}') || 0,
+        cases_with_links: parseInt('{{ stats.cases_with_links }}') || 0
+    };
+    
+    console.log('Final processed data:', data); // Debug log
+    
+    // อัปเดตข้อมูลในหน้าโดยตรง
+    updateSummaryStats(data);
+    
+    // อัปเดตกราฟเฉพาะเมื่อมีข้อมูล
+    if (deptStats.length > 0) {
+        console.log('Updating department charts with deptStats:', deptStats);
+        updateDepartmentCharts(data);
+    } else {
+        console.log('No department stats available');
+    }
+    
+    if (monthlyStats.length > 0) {
+        console.log('Updating trend chart with monthlyStats:', monthlyStats);
+        updateTrendChart(data);
+    } else {
+        console.log('No monthly stats available');
+    }
+}
+
+function updateSummaryStats(data) {
+    document.getElementById('totalCases').textContent = data.total_cases;
+    
+    // แสดงจำนวน cases ที่มีไฟล์แนบ
+    const changeElement = document.getElementById('changePercent');
+    changeElement.textContent = data.cases_with_files;
+    changeElement.className = 'stat-number change-positive';
+    
+    // แสดงจำนวน cases ที่มีลิงก์ภายนอก
+    document.getElementById('periodDisplay').textContent = data.cases_with_links;
+    
+    // Update last update time
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
+}
+
+function updateDepartmentCharts(data) {
+    console.log('Updating department charts with data:', data); // Debug log
+    console.log('data.departments type:', typeof data.departments);
+    console.log('data.departments isArray:', Array.isArray(data.departments));
+    console.log('data.departments length:', data.departments ? data.departments.length : 'undefined');
+    
+    if (data.departments && Array.isArray(data.departments) && data.departments.length > 0) {
+        const labels = data.departments.map(d => d.name || 'ไม่ระบุ');
+        const values = data.departments.map(d => parseInt(d.case_count) || 0); // แก้ไขจาก d.count เป็น d.case_count
+        
+        console.log('Chart labels:', labels); // Debug log
+        console.log('Chart values:', values); // Debug log
+        
+        // Update Pie Chart
+        if (charts.pie) {
+            charts.pie.data.labels = labels;
+            charts.pie.data.datasets[0].data = values;
+            charts.pie.update();
+            console.log('Pie chart updated successfully');
+        } else {
+            console.log('Pie chart not initialized');
+        }
+        
+        // Update Bar Chart
+        if (charts.bar) {
+            charts.bar.data.labels = labels;
+            charts.bar.data.datasets[0].data = values;
+            charts.bar.update();
+            console.log('Bar chart updated successfully');
+        } else {
+            console.log('Bar chart not initialized');
+        }
+    } else {
+        console.log('No department data available for charts');
+        console.log('data.departments:', data.departments);
+    }
+}
+
+function updateTrendChart(data) {
+    console.log('Updating trend chart with data:', data); // Debug log
+    console.log('data.monthly_data type:', typeof data.monthly_data);
+    console.log('data.monthly_data isArray:', Array.isArray(data.monthly_data));
+    console.log('data.monthly_data length:', data.monthly_data ? data.monthly_data.length : 'undefined');
+    
+    if (data.monthly_data && Array.isArray(data.monthly_data) && data.monthly_data.length > 0) {
+        const labels = data.monthly_data.map(item => item.month || 'ไม่ระบุ');
+        const values = data.monthly_data.map(item => parseInt(item.case_count) || 0); // แก้ไขจาก item.count เป็น item.case_count
+        
+        console.log('Trend labels:', labels); // Debug log
+        console.log('Trend values:', values); // Debug log
+        
+        if (charts.line) {
+            charts.line.data.labels = labels;
+            charts.line.data.datasets[0].data = values;
+            charts.line.update();
+            console.log('Line chart updated successfully');
+        } else {
+            console.log('Line chart not initialized');
+        }
+    } else {
+        console.log('No monthly data available for trend chart');
+        console.log('data.monthly_data:', data.monthly_data);
+    }
+}
+
+function updateDepartmentTable(data) {
+    const tbody = document.getElementById('departmentTableBody');
+    const total = data.total_cases;
+    
+    console.log('Updating department table with data:', data); // Debug log
+    
+    if (data.departments && Array.isArray(data.departments) && data.departments.length > 0) {
+        tbody.innerHTML = data.departments.map(dept => {
+            // ตรวจสอบว่าข้อมูลถูกต้อง
+            const deptName = dept.name || 'ไม่ระบุ';
+            const deptCount = parseInt(dept.case_count) || 0; // แก้ไขจาก dept.count เป็น dept.case_count
+            const percentage = total > 0 ? ((deptCount / total) * 100).toFixed(1) : 0;
+            
+            return `
+                <tr>
+                    <td><strong>${deptName}</strong></td>
+                    <td><span class="badge bg-primary">${deptCount}</span></td>
+                    <td>${percentage}%</td>
+                </tr>
+            `;
+        }).join('');
+    } else {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">ไม่พบข้อมูล</td></tr>';
+    }
+}
+
+// Auto refresh every 5 minutes
+setInterval(loadStats, 5 * 60 * 1000);
+</script>
+{% endblock %}

@@ -1,0 +1,40 @@
+{
+  "patient_id": 123456,
+  "personal_info": {
+    "first_name": "สมชาย",
+    "last_name": "แมนเมือง",
+    "age": 45,
+    "gender": "ชาย",
+    "phone": "081-234-5678",
+    "address": "กรุงเทพมหานคร"
+  },
+  "medical_info": {
+    "department": "หน่วยวัณโรค",
+    "diagnosis": "วัณโรคปอด",
+    "symptoms": ["ไอ", "เสมหะ", "น้ำหนักลด", "อ่อนเพลีย"],
+    "medications": ["Rifampin", "Isoniazid", "Pyrazinamide", "Ethambutol"]
+  },
+  "treatment_history": [
+    {
+      "date": "2025-08-15",
+      "type": "ตรวจครั้งแรก",
+      "result": "ปกติ",
+      "notes": "เริ่มการรักษา"
+    },
+    {
+      "date": "2025-08-20",
+      "type": "เอ็กซ์เรย์ปอด",
+      "result": "พบจุดขาวที่ปอดขวา",
+      "notes": "ต้องติดตาม"
+    },
+    {
+      "date": "2025-08-25",
+      "type": "ตรวจเสมหะ",
+      "result": "พบเชื้อวัณโรค",
+      "notes": "เริ่มยา 4 ชนิด"
+    }
+  ],
+  "notes": "ไฟล์ทดสอบสำหรับระบบจัดการข้อมูลผู้ป่วย",
+  "created_at": "2025-08-28T15:00:00Z",
+  "created_by": "ระบบทดสอบ"
+}

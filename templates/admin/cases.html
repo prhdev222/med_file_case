@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+
+{% block title %}จัดการข้อมูลผู้ป่วย - Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="h3 mb-0">
+                        <i class="fas fa-users me-2"></i>จัดการข้อมูลผู้ป่วย
+                    </h1>
+                    <p class="text-muted mb-0">ระบบบันทึกและจัดการข้อมูลผู้ป่วยของแต่ละหน่วยงาน</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('admin_add_case') }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>เพิ่มผู้ป่วยที่เก็บข้อมูล
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Filter -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body">
+                    <form method="GET" class="row g-3">
+                        <div class="col-md-6">
+                            <label for="search" class="form-label">
+                                <i class="fas fa-search me-2"></i>ค้นหา
+                            </label>
+                            <input type="text" class="form-control" id="search" name="search" 
+                                   value="{{ search }}" placeholder="HN, ชื่อ, หรือนามสกุล">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="department_id" class="form-label">
+                                <i class="fas fa-hospital me-2"></i>หน่วยงาน
+                            </label>
+                            <select class="form-select" id="department_id" name="department_id">
+                                <option value="">ทั้งหมด</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}" {% if department_id == dept.id %}selected{% endif %}>
+                                    {{ dept.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-search me-2"></i>ค้นหา
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title text-primary">
+                        <i class="fas fa-chart-bar me-2"></i>สถิติรวม
+                    </h5>
+                    <div class="display-6 text-primary">{{ cases.total }}</div>
+                    <p class="text-muted mb-0">รายการทั้งหมด</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cases Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>รายการผู้ป่วย
+                        {% if search or department_id %}
+                        <span class="badge bg-info ms-2">ผลการค้นหา</span>
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if cases.items %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>HN</th>
+                                    <th>ชื่อ-นามสกุล</th>
+                                    <th>หน่วยงาน</th>
+                                    <th>วันที่</th>
+                                    <th>หมายเหตุ</th>
+                                    <th>เอกสาร</th>
+                                    <th>วันที่สร้าง</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for case in cases.items %}
+                                <tr>
+                                    <td>
+                                        <span class="badge bg-secondary">#{{ case.id }}</span>
+                                    </td>
+                                    <td>
+                                        <strong class="text-primary">{{ case.hn }}</strong>
+                                    </td>
+                                    <td>
+                                        <div>
+                                            <strong>{{ case.first_name }}</strong>
+                                            <br>
+                                            <small class="text-muted">{{ case.last_name }}</small>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">{{ case.department.name }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="text-success">{{ case.case_date.strftime('%d/%m/%Y') }}</span>
+                                    </td>
+                                    <td>
+                                        {% if case.notes %}
+                                        <span class="text-muted">{{ case.notes[:50] }}{% if case.notes|length > 50 %}...{% endif %}</span>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if case.file_path %}
+                                            <div class="d-flex align-items-center">
+                                                {% if case.file_path.lower().endswith('.pdf') %}
+                                                    <i class="fas fa-file-pdf text-danger me-2"></i>
+                                                {% else %}
+                                                    <i class="fas fa-file text-primary me-2"></i>
+                                                {% endif %}
+                                                <span class="text-muted">{{ case.file_path.split('/')[-1][:20] }}{% if case.file_path.split('/')[-1]|length > 20 %}...{% endif %}</span>
+                                                <div class="btn-group ms-2" role="group">
+                                                    <a href="{{ url_for('download_case_file', case_id=case.id) }}" 
+                                                       class="btn btn-sm btn-outline-primary" title="ดาวน์โหลด">
+                                                        <i class="fas fa-download"></i>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        {% elif case.external_link %}
+                                            <div class="d-flex align-items-center">
+                                                <i class="fas fa-link text-success me-2"></i>
+                                                <a href="{{ case.external_link }}" target="_blank" class="text-success">
+                                                    {{ case.link_type or 'ลิงก์' }}
+                                                </a>
+                                            </div>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ case.created_at.strftime('%d/%m/%Y %H:%M') }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <a href="{{ url_for('admin_edit_case', case_id=case.id) }}" 
+                                               class="btn btn-sm btn-outline-primary" title="แก้ไข">
+                                                <i class="fas fa-edit"></i>
+                                            </a>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                    onclick="confirmDelete({{ case.id }}, '{{ case.hn }}')" title="ลบ">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if cases.pages > 1 %}
+                    <nav aria-label="Page navigation" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            {% if cases.has_prev %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('admin_cases', page=cases.prev_num, search=search, department_id=department_id) }}">
+                                    <i class="fas fa-chevron-left"></i>
+                                </a>
+                            </li>
+                            {% endif %}
+
+                            {% for page_num in cases.iter_pages() %}
+                                {% if page_num %}
+                                    {% if page_num != cases.page %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('admin_cases', page=page_num, search=search, department_id=department_id) }}">
+                                            {{ page_num }}
+                                        </a>
+                                    </li>
+                                    {% else %}
+                                    <li class="page-item active">
+                                        <span class="page-link">{{ page_num }}</span>
+                                    </li>
+                                    {% endif %}
+                                {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                                {% endif %}
+                            {% endfor %}
+
+                            {% if cases.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('admin_cases', page=cases.next_num, search=search, department_id=department_id) }}">
+                                    <i class="fas fa-chevron-right"></i>
+                                </a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">ไม่พบข้อมูลผู้ป่วย</h5>
+                        <p class="text-muted">
+                            {% if search or department_id %}
+                            ลองปรับเงื่อนไขการค้นหาใหม่
+                            {% else %}
+                            เริ่มต้นเพิ่มผู้ป่วยใหม่ได้เลย
+                            {% endif %}
+                        </p>
+                        {% if not search and not department_id %}
+                        <a href="{{ url_for('admin_add_case') }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>เพิ่มผู้ป่วยใหม่
+                        </a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Section -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-download me-2"></i>ส่งออกข้อมูล
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('admin_export_cases') }}" class="row g-3" id="exportForm">
+                        <div class="col-md-2">
+                            <label for="export_start_date" class="form-label">วันที่เริ่มต้น</label>
+                            <input type="date" class="form-control" id="export_start_date" name="start_date">
+                        </div>
+                        <div class="col-md-2">
+                            <label for="export_end_date" class="form-label">วันที่สิ้นสุด</label>
+                            <input type="date" class="form-control" id="export_end_date" name="end_date">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="export_department_id" class="form-label">หน่วยงาน</label>
+                            <select class="form-select" id="export_department_id" name="department_id">
+                                <option value="">ทั้งหมด</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <div>
+                                <button type="button" class="btn btn-primary me-2" id="searchBtn">
+                                    <i class="fas fa-search me-1"></i>ค้นหา
+                                </button>
+                                <button type="submit" class="btn btn-success" id="exportBtn">
+                                    <i class="fas fa-file-csv me-1"></i>Export CSV
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <!-- Export Preview -->
+                    <div class="mt-3" id="exportPreview" style="display: none;">
+                        <hr>
+                        <h6 class="text-primary">
+                            <i class="fas fa-eye me-2"></i>ตัวอย่างข้อมูลที่จะ Export
+                        </h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>ช่วงวันที่:</strong> <span id="previewDateRange"></span></p>
+                                <p><strong>หน่วยงาน:</strong> <span id="previewDepartment"></span></p>
+                                <p><strong>จำนวนรายการ:</strong> <span id="previewCount" class="badge bg-info"></span></p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>คอลัมน์ที่จะ Export:</strong></p>
+                                <ul class="small text-muted">
+                                    <li>HN, ชื่อ, นามสกุล</li>
+                                    <li>หน่วยงาน, วันที่วินิจฉัย, หมายเหตุ</li>
+                                    <li>เอกสาร</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Table -->
+                        <div class="mt-3" id="previewTableContainer" style="display: none;">
+                            <h6 class="text-success">
+                                <i class="fas fa-table me-2"></i>ตัวอย่างข้อมูลที่จะ Export
+                            </h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered" id="previewTable">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>HN</th>
+                                            <th>ชื่อ</th>
+                                            <th>นามสกุล</th>
+                                            <th>หน่วยงาน</th>
+                                            <th>วันที่</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="previewTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle text-danger me-2"></i>ยืนยันการลบ
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>คุณต้องการลบข้อมูลผู้ป่วย <strong id="deleteCaseHN"></strong> ใช่หรือไม่?</p>
+                <p class="text-muted small">การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>ยกเลิก
+                </button>
+                <form method="POST" id="deleteForm" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash me-2"></i>ลบ
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmDelete(caseId, hn) {
+    document.getElementById('deleteCaseHN').textContent = hn;
+    document.getElementById('deleteForm').action = `/admin/cases/delete/${caseId}`;
+    
+    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    deleteModal.show();
+}
+
+// Set default export dates (last 30 days)
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+    
+    document.getElementById('export_end_date').value = today.toISOString().split('T')[0];
+    document.getElementById('export_start_date').value = thirtyDaysAgo.toISOString().split('T')[0];
+    
+    // Show export preview initially
+    updateExportPreview();
+    
+    // Add event listeners for export form changes
+    document.getElementById('export_start_date').addEventListener('change', updateExportPreview);
+    document.getElementById('export_end_date').addEventListener('change', updateExportPreview);
+    document.getElementById('export_department_id').addEventListener('change', updateExportPreview);
+    
+    // Add event listener for preview button
+    document.getElementById('searchBtn').addEventListener('click', function() {
+        searchAndPreviewData();
+    });
+});
+
+// Function to search and preview data
+function searchAndPreviewData() {
+    const startDate = document.getElementById('export_start_date').value;
+    const endDate = document.getElementById('export_end_date').value;
+    const departmentId = document.getElementById('export_department_id').value;
+    
+    // Validate dates
+    if (startDate && endDate && startDate > endDate) {
+        alert('วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด');
+        return;
+    }
+    
+    // Show loading state
+    const searchBtn = document.getElementById('searchBtn');
+    searchBtn.disabled = true;
+    searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>กำลังค้นหา...';
+    
+    // สร้าง URL สำหรับค้นหา
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (departmentId) params.append('department_id', departmentId);
+    
+    // เรียกใช้ API จริง
+    fetch(`/admin/cases/search?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            // อัปเดตตารางตัวอย่าง
+            updatePreviewTable(data);
+            
+            // อัปเดตข้อมูลสรุป
+            document.getElementById('previewCount').textContent = data.length || 0;
+            
+            // แสดงส่วน preview
+            document.getElementById('exportPreview').style.display = 'block';
+            document.getElementById('previewTableContainer').style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('เกิดข้อผิดพลาดในการค้นหาข้อมูล');
+        })
+        .finally(() => {
+            // เปิดใช้งานปุ่มอีกครั้ง
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<i class="fas fa-search me-2"></i>ค้นหา';
+        });
+}
+
+// Function to update preview table
+function updatePreviewTable(data) {
+    const tbody = document.getElementById('previewTableBody');
+    tbody.innerHTML = '';
+    
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">ไม่พบข้อมูล</td></tr>';
+    } else {
+        data.forEach(item => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${item.hn || '-'}</td>
+                <td>${item.first_name || '-'}</td>
+                <td>${item.last_name || '-'}</td>
+                <td>${item.department_name || 'ไม่ระบุ'}</td>
+                <td>${item.case_date || '-'}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+    
+    // Show preview table
+    document.getElementById('previewTableContainer').style.display = 'block';
+}
+
+// Function to update export preview
+function updateExportPreview() {
+    const startDate = document.getElementById('export_start_date').value;
+    const endDate = document.getElementById('export_end_date').value;
+    const departmentId = document.getElementById('export_department_id').value;
+    
+    // Update preview information
+    if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const startFormatted = start.toLocaleDateString('th-TH');
+        const endFormatted = end.toLocaleDateString('th-TH');
+        document.getElementById('previewDateRange').textContent = `${startFormatted} - ${endFormatted}`;
+    } else {
+        document.getElementById('previewDateRange').textContent = 'ไม่ระบุ';
+    }
+    
+    if (departmentId) {
+        const deptSelect = document.getElementById('export_department_id');
+        const selectedOption = deptSelect.options[deptSelect.selectedIndex];
+        document.getElementById('previewDepartment').textContent = selectedOption.text || 'ไม่ระบุ';
+    } else {
+        document.getElementById('previewDepartment').textContent = 'ทั้งหมด';
+    }
+    
+    // Show preview section
+    document.getElementById('exportPreview').style.display = 'block';
+    
+    // Update count based on current table data
+    const tableRows = document.querySelectorAll('table tbody tr');
+    let count = tableRows.length;
+    
+    // Apply filters if they match current search
+    const currentSearch = '{{ search }}';
+    const currentDeptId = '{{ department_id }}';
+    
+    if (currentSearch || currentDeptId) {
+        // This is a simplified count - in a real app you might want to make an AJAX call
+        count = Math.min(count, 100); // Assume max 100 for preview
+    }
+    
+    document.getElementById('previewCount').textContent = count;
+}
+
+// Form validation before export
+document.getElementById('exportForm').addEventListener('submit', function(e) {
+    const startDate = document.getElementById('export_start_date').value;
+    const endDate = document.getElementById('export_end_date').value;
+    
+    if (startDate && endDate && startDate > endDate) {
+        e.preventDefault();
+        alert('วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด');
+        return;
+    }
+    
+    // Show loading state
+    const exportBtn = document.getElementById('exportBtn');
+    exportBtn.disabled = true;
+    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>กำลัง Export...';
+    
+    // Re-enable button after a delay (in case of error)
+    setTimeout(() => {
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = '<i class="fas fa-file-csv me-2"></i>Export CSV';
+    }, 5000);
+});
+</script>
+{% endblock %}

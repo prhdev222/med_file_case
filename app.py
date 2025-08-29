@@ -8,6 +8,31 @@ from datetime import datetime, timezone
 import mimetypes
 from dotenv import load_dotenv
 
+def generate_safe_filename(original_filename, custom_filename=None, first_name=None, last_name=None):
+    """สร้างชื่อไฟล์ที่ปลอดภัย"""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    _, ext = os.path.splitext(original_filename)
+    
+    if custom_filename:
+        # ใช้ชื่อไฟล์ที่ผู้ใช้กำหนด
+        safe_custom_name = "".join(c for c in custom_filename if c.isalnum() or c in ('_', '-', ' '))
+        safe_custom_name = safe_custom_name.replace(' ', '_')
+        return f"{safe_custom_name}_{timestamp}{ext}"
+    else:
+        # ใช้ชื่อไฟล์เดิมหรือสร้างใหม่
+        if any(ord(char) > 127 for char in original_filename):
+            # ชื่อไฟล์ภาษาไทย - ใช้ข้อมูลผู้ป่วย
+            if first_name and last_name:
+                new_filename = f"{first_name}_{last_name}_{timestamp}{ext}"
+                return "".join(c for c in new_filename if c.isalnum() or c in ('_', '-', '.'))
+            else:
+                return f"file_{timestamp}{ext}"
+        else:
+            # ชื่อไฟล์ภาษาอังกฤษ
+            safe_filename = secure_filename(original_filename)
+            name, _ = os.path.splitext(safe_filename)
+            return f"{name}_{timestamp}{ext}"
+
 # Load environment variables
 load_dotenv()
 
@@ -26,6 +51,7 @@ app.config['MAX_FILE_SIZE'] = int(os.getenv('MAX_FILE_SIZE', 25 * 1024 * 1024)) 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'guidelines'), exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'images'), exist_ok=True)
+os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'cases'), exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'temp'), exist_ok=True)
 
 db = SQLAlchemy(app)
@@ -87,6 +113,38 @@ class Contact(db.Model):
     other_contact = db.Column(db.Text)
     department = db.relationship('Department', backref=db.backref('contacts', lazy=True))
 
+class PatientCase(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    hn = db.Column(db.String(20), nullable=False)  # Hospital Number
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
+    department_id = db.Column(db.Integer, db.ForeignKey('department.id'), nullable=False)
+    case_date = db.Column(db.Date, nullable=False)
+    notes = db.Column(db.Text)
+    # เพิ่มฟิลด์สำหรับเอกสาร
+    file_path = db.Column(db.String(500))  # ไฟล์ที่อัปโหลด
+    file_size = db.Column(db.Integer)  # ขนาดไฟล์
+    external_link = db.Column(db.String(500))  # ลิงก์ภายนอก
+    link_type = db.Column(db.String(50))  # ประเภทลิงก์
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_by = db.Column(db.Integer, db.ForeignKey('admin_user.id'))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    is_deleted = db.Column(db.Boolean, default=False)
+    
+    department = db.relationship('Department', backref=db.backref('cases', lazy=True))
+    created_by_user = db.relationship('AdminUser', backref=db.backref('created_cases', lazy=True))
+
+class CaseAudit(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('patient_case.id'), nullable=False)
+    action = db.Column(db.String(20), nullable=False)  # 'CREATE', 'UPDATE', 'DELETE'
+    user_id = db.Column(db.Integer, db.ForeignKey('admin_user.id'))
+    ip_address = db.Column(db.String(45))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    case = db.relationship('PatientCase', backref=db.backref('audit_logs', lazy=True))
+    user = db.relationship('AdminUser', backref=db.backref('case_audits', lazy=True))
+
 class AdminUser(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -129,6 +187,619 @@ def download_guideline(guideline_id):
     flash('ไฟล์ไม่พบ', 'error')
     return redirect(url_for('department', dept_id=guideline.department_id))
 
+
+
+@app.route('/stats')
+def stats():
+    """หน้าแสดงสถิติสาธารณะ"""
+    # ดึงข้อมูลสถิติจากฐานข้อมูล
+    try:
+        # จำนวน cases ทั้งหมด
+        total_cases = db.session.query(PatientCase).filter_by(is_deleted=False).count()
+        
+        # จำนวน cases ตามหน่วยงาน - ใช้วิธีง่ายกว่า
+        dept_stats = []
+        departments = db.session.query(Department).all()
+        
+        for dept in departments:
+            case_count = db.session.query(PatientCase).filter(
+                PatientCase.department_id == dept.id,
+                PatientCase.is_deleted == False
+            ).count()
+            
+            if case_count > 0:  # แสดงเฉพาะหน่วยงานที่มี cases
+                dept_stats.append({
+                    'name': str(dept.name),
+                    'case_count': int(case_count)
+                })
+        
+        # Debug: แสดงข้อมูลที่สร้าง
+        print(f"Processed dept_stats: {dept_stats}")
+        
+        # จำนวน cases ตามเดือน (6 เดือนล่าสุด) - ใช้วิธีง่ายกว่า
+        from datetime import datetime, timedelta
+        six_months_ago = datetime.now() - timedelta(days=180)
+        
+        monthly_stats = []
+        current_date = datetime.now()
+        
+        # สร้างรายการเดือน 6 เดือนล่าสุด
+        for i in range(6):
+            month_date = current_date - timedelta(days=30*i)
+            month_key = month_date.strftime('%Y-%m')
+            
+            case_count = db.session.query(PatientCase).filter(
+                db.func.strftime('%Y-%m', PatientCase.case_date) == month_key,
+                PatientCase.is_deleted == False
+            ).count()
+            
+            if case_count > 0:  # แสดงเฉพาะเดือนที่มี cases
+                monthly_stats.append({
+                    'month': str(month_key),
+                    'case_count': int(case_count)
+                })
+        
+        # เรียงลำดับตามเดือน
+        monthly_stats.sort(key=lambda x: x['month'])
+        
+        # Debug: แสดงข้อมูลที่สร้าง
+        print(f"Processed monthly_stats: {monthly_stats}")
+        
+        # จำนวน cases ที่มีไฟล์แนบ
+        cases_with_files = db.session.query(PatientCase).filter(
+            PatientCase.file_path.isnot(None),
+            PatientCase.is_deleted == False
+        ).count()
+        
+        # จำนวน cases ที่มี external link
+        cases_with_links = db.session.query(PatientCase).filter(
+            PatientCase.external_link.isnot(None),
+            PatientCase.is_deleted == False
+        ).count()
+        
+        stats_data = {
+            'total_cases': total_cases,
+            'dept_stats': dept_stats,
+            'monthly_stats': monthly_stats,
+            'cases_with_files': cases_with_files,
+            'cases_with_links': cases_with_links
+        }
+        
+        # Debug logging
+        print(f"Stats data being sent to template:")
+        print(f"  total_cases: {total_cases}")
+        print(f"  dept_stats: {dept_stats}")
+        print(f"  monthly_stats: {monthly_stats}")
+        print(f"  cases_with_files: {cases_with_files}")
+        print(f"  cases_with_links: {cases_with_links}")
+        
+    except Exception as e:
+        print(f"Error getting stats: {e}")
+        stats_data = {
+            'total_cases': 0,
+            'dept_stats': [],
+            'monthly_stats': [],
+            'cases_with_files': 0,
+            'cases_with_links': 0
+        }
+    
+    return render_template('stats.html', stats=stats_data)
+
+@app.route('/admin/cases')
+@login_required
+def admin_cases():
+    """หน้าแสดงรายการ cases ทั้งหมด"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    search = request.args.get('search', '')
+    department_id = request.args.get('department_id', type=int)
+    
+    query = db.session.query(PatientCase).join(Department).filter(PatientCase.is_deleted == False)
+    
+    if search:
+        query = query.filter(
+            db.or_(
+                PatientCase.hn.contains(search),
+                PatientCase.first_name.contains(search),
+                PatientCase.last_name.contains(search)
+            )
+        )
+    
+    if department_id:
+        query = query.filter(PatientCase.department_id == department_id)
+    
+    cases = query.order_by(PatientCase.case_date.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    departments = db.session.query(Department).all()
+    return render_template('admin/cases.html', cases=cases, departments=departments, search=search, department_id=department_id)
+
+@app.route('/admin/cases/add', methods=['GET', 'POST'])
+@login_required
+def admin_add_case():
+    """เพิ่ม case ใหม่"""
+    if request.method == 'POST':
+        hn = request.form['hn']
+        first_name = request.form['first_name']
+        last_name = request.form['last_name']
+        department_id = request.form['department_id']
+        case_date = request.form['case_date']
+        notes = request.form.get('notes', '')
+        upload_type = request.form.get('upload_type', 'none')
+        
+        # ตรวจสอบว่า HN ซ้ำในวันเดียวกันหรือไม่
+        existing_case = db.session.query(PatientCase).filter_by(
+            hn=hn, case_date=case_date, is_deleted=False
+        ).first()
+        
+        if existing_case:
+            flash('HN นี้มีในระบบแล้วในวันที่เลือก', 'error')
+        else:
+            case = PatientCase(
+                hn=hn,
+                first_name=first_name,
+                last_name=last_name,
+                department_id=department_id,
+                case_date=datetime.strptime(case_date, '%Y-%m-%d').date(),
+                notes=notes,
+                created_by=current_user.id
+            )
+            
+            # จัดการไฟล์หรือลิงก์
+            if upload_type == 'file':
+                file = request.files['file']
+                if file and file.filename:
+                    print(f"กำลังอัปโหลดไฟล์: {file.filename}")
+                    
+                    # ตรวจสอบขนาดไฟล์
+                    file.seek(0, 2)
+                    file_size = file.tell()
+                    file.seek(0)
+                    
+                    print(f"ขนาดไฟล์: {file_size} bytes")
+                    
+                    if file_size > app.config['MAX_FILE_SIZE']:
+                        flash(f'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด {app.config["MAX_FILE_SIZE"] // (1024*1024)} MB)', 'error')
+                        return redirect(url_for('admin_add_case'))
+                    
+                    # สร้างโฟลเดอร์ใหม่ตามหน่วยงาน
+                    dept = db.session.get(Department, department_id)
+                    dept_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'cases', dept.code.lower())
+                    os.makedirs(dept_folder, exist_ok=True)
+                    
+                    print(f"โฟลเดอร์ปลายทาง: {dept_folder}")
+                    
+                    # จัดการชื่อไฟล์
+                    original_filename = file.filename
+                    custom_filename = request.form.get('custom_filename', '').strip()
+                    print(f"ชื่อไฟล์ต้นฉบับ: {original_filename}")
+                    print(f"ชื่อไฟล์ที่ต้องการ: {custom_filename}")
+                    
+                    # สร้างชื่อไฟล์ใหม่
+                    new_filename = generate_safe_filename(
+                        original_filename, 
+                        custom_filename, 
+                        first_name, 
+                        last_name
+                    )
+                    print(f"ชื่อไฟล์ใหม่: {new_filename}")
+                    
+                    file_path = os.path.join(dept_folder, new_filename)
+                    
+                    print(f"บันทึกไฟล์ที่: {file_path}")
+                    
+                    try:
+                        # บันทึกไฟล์
+                        file.save(file_path)
+                        
+                        # ตรวจสอบว่าไฟล์ถูกบันทึกจริง
+                        if os.path.exists(file_path):
+                            actual_size = os.path.getsize(file_path)
+                            print(f"ไฟล์ถูกบันทึกสำเร็จ ขนาดจริง: {actual_size} bytes")
+                            
+                            # อัปเดตข้อมูลในฐานข้อมูล
+                            case.file_path = file_path
+                            case.file_size = actual_size
+                            case.external_link = None
+                            case.link_type = None
+                            
+                            flash(f'อัปโหลดไฟล์สำเร็จ: {new_filename}', 'success')
+                        else:
+                            print("ไฟล์ไม่ถูกบันทึก!")
+                            flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                            return redirect(url_for('admin_add_case'))
+                            
+                    except Exception as e:
+                        print(f"เกิดข้อผิดพลาดในการบันทึกไฟล์: {e}")
+                        flash(f'เกิดข้อผิดพลาดในการบันทึกไฟล์: {str(e)}', 'error')
+                        return redirect(url_for('admin_add_case'))
+                        
+            elif upload_type == 'link':
+                external_link = request.form['external_link']
+                link_type = request.form['link_type']
+                
+                if external_link and link_type:
+                    case.external_link = external_link
+                    case.link_type = link_type
+                    case.file_path = None
+                    case.file_size = None
+                    
+                    flash('เพิ่มลิงก์ภายนอกสำเร็จ', 'success')
+                else:
+                    flash('กรุณากรอกลิงก์และเลือกประเภทลิงก์', 'error')
+                    return redirect(url_for('admin_add_case'))
+            
+            db.session.add(case)
+            db.session.commit()  # Commit case ก่อนเพื่อให้ได้ ID
+            
+            try:
+                # บันทึก audit log หลังจาก commit case แล้ว
+                audit = CaseAudit(
+                    case_id=case.id,  # ตอนนี้ case.id จะมีค่าแล้ว
+                    action='CREATE',
+                    user_id=current_user.id,
+                    ip_address=request.remote_addr
+                )
+                db.session.add(audit)
+                db.session.commit()  # Commit audit log
+                
+                flash('เพิ่มผู้ป่วยที่เก็บข้อมูลสำเร็จ', 'success')
+                return redirect(url_for('admin_cases'))
+            except Exception as e:
+                # หากเกิดข้อผิดพลาดในการสร้าง audit log ให้ rollback และลบไฟล์ที่อัปโหลด
+                db.session.rollback()
+                if upload_type == 'file' and case.file_path and os.path.exists(case.file_path):
+                    os.remove(case.file_path)
+                flash(f'เกิดข้อผิดพลาดในการบันทึกข้อมูล: {str(e)}', 'error')
+                return redirect(url_for('admin_add_case'))
+    
+    departments = db.session.query(Department).all()
+    return render_template('admin/add_case.html', departments=departments, config=app.config)
+
+@app.route('/admin/cases/edit/<int:case_id>', methods=['GET', 'POST'])
+@login_required
+def admin_edit_case(case_id):
+    """แก้ไข case"""
+    case = db.session.get(PatientCase, case_id)
+    if case is None or case.is_deleted:
+        abort(404)
+    
+    if request.method == 'POST':
+        hn = request.form['hn']
+        first_name = request.form['first_name']
+        last_name = request.form['last_name']
+        department_id = request.form['department_id']
+        case_date = request.form['case_date']
+        notes = request.form.get('notes', '')
+        upload_type = request.form.get('upload_type', 'none')
+        
+        # ตรวจสอบ HN ซ้ำ (ยกเว้นตัวเอง)
+        existing_case = db.session.query(PatientCase).filter(
+            db.and_(
+                PatientCase.hn == hn,
+                PatientCase.case_date == datetime.strptime(case_date, '%Y-%m-%d').date(),
+                PatientCase.id != case_id,
+                PatientCase.is_deleted == False
+            )
+        ).first()
+        
+        if existing_case:
+            flash('HN นี้มีในระบบแล้วในวันที่เลือก', 'error')
+        else:
+            case.hn = hn
+            case.first_name = first_name
+            case.last_name = last_name
+            case.department_id = department_id
+            case.case_date = datetime.strptime(case_date, '%Y-%m-%d').date()
+            case.notes = notes
+            case.updated_at = datetime.now(timezone.utc)
+            
+            # จัดการไฟล์หรือลิงก์
+            if upload_type == 'file':
+                file = request.files['file']
+                if file and file.filename:
+                    print(f"กำลังอัปโหลดไฟล์: {file.filename}")
+                    
+                    # ตรวจสอบขนาดไฟล์
+                    file.seek(0, 2)
+                    file_size = file.tell()
+                    file.seek(0)
+                    
+                    print(f"ขนาดไฟล์: {file_size} bytes")
+                    
+                    if file_size > app.config['MAX_FILE_SIZE']:
+                        flash(f'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด {app.config["MAX_FILE_SIZE"] // (1024*1024)} MB)', 'error')
+                        return redirect(url_for('admin_edit_case', case_id=case_id))
+                    
+                    # ลบไฟล์เก่าถ้ามี
+                    if case.file_path and os.path.exists(case.file_path):
+                        try:
+                            os.remove(case.file_path)
+                            print(f"ลบไฟล์เก่า: {case.file_path}")
+                        except Exception as e:
+                            print(f"ไม่สามารถลบไฟล์เก่าได้: {e}")
+                    
+                    # สร้างโฟลเดอร์ใหม่ตามหน่วยงาน
+                    dept = db.session.get(Department, department_id)
+                    dept_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'cases', dept.code.lower())
+                    os.makedirs(dept_folder, exist_ok=True)
+                    
+                    print(f"โฟลเดอร์ปลายทาง: {dept_folder}")
+                    
+                    # จัดการชื่อไฟล์
+                    original_filename = file.filename
+                    custom_filename = request.form.get('custom_filename', '').strip()
+                    print(f"ชื่อไฟล์ต้นฉบับ: {original_filename}")
+                    print(f"ชื่อไฟล์ที่ต้องการ: {custom_filename}")
+                    
+                    # สร้างชื่อไฟล์ใหม่
+                    new_filename = generate_safe_filename(
+                        original_filename, 
+                        custom_filename, 
+                        first_name, 
+                        last_name
+                    )
+                    print(f"ชื่อไฟล์ใหม่: {new_filename}")
+                    
+                    file_path = os.path.join(dept_folder, new_filename)
+                    
+                    print(f"บันทึกไฟล์ที่: {file_path}")
+                    
+                    try:
+                        # บันทึกไฟล์
+                        file.save(file_path)
+                        
+                        # ตรวจสอบว่าไฟล์ถูกบันทึกจริง
+                        if os.path.exists(file_path):
+                            actual_size = os.path.getsize(file_path)
+                            print(f"ไฟล์ถูกบันทึกสำเร็จ ขนาดจริง: {actual_size} bytes")
+                            
+                            # อัปเดตข้อมูลในฐานข้อมูล
+                            case.file_path = file_path
+                            case.file_size = actual_size
+                            case.external_link = None
+                            case.link_type = None
+                            
+                            flash(f'อัปโหลดไฟล์สำเร็จ: {new_filename}', 'success')
+                        else:
+                            print("ไฟล์ไม่ถูกบันทึก!")
+                            flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                            return redirect(url_for('admin_edit_case', case_id=case_id))
+                            
+                    except Exception as e:
+                        print(f"เกิดข้อผิดพลาดในการบันทึกไฟล์: {e}")
+                        flash(f'เกิดข้อผิดพลาดในการบันทึกไฟล์: {str(e)}', 'error')
+                        return redirect(url_for('admin_edit_case', case_id=case_id))
+                        
+                else:
+                    flash('กรุณาเลือกไฟล์เมื่อเลือกแก้ไขไฟล์', 'error')
+                    return redirect(url_for('admin_edit_case', case_id=case_id))
+                    
+            elif upload_type == 'link':
+                external_link = request.form['external_link']
+                link_type = request.form['link_type']
+                
+                if external_link and link_type:
+                    # ลบไฟล์เก่าถ้ามี
+                    if case.file_path and os.path.exists(case.file_path):
+                        try:
+                            os.remove(case.file_path)
+                            print(f"ลบไฟล์เก่า: {case.file_path}")
+                        except Exception as e:
+                            print(f"ไม่สามารถลบไฟล์เก่าได้: {e}")
+                    
+                    case.external_link = external_link
+                    case.link_type = link_type
+                    case.file_path = None
+                    case.file_size = None
+                    
+                    flash('อัปเดตลิงก์ภายนอกสำเร็จ', 'success')
+                else:
+                    flash('กรุณากรอกลิงก์และเลือกประเภทลิงก์', 'error')
+                    return redirect(url_for('admin_edit_case', case_id=case_id))
+                    
+            elif upload_type == 'none':
+                # ลบเอกสารทั้งหมด
+                if case.file_path and os.path.exists(case.file_path):
+                    try:
+                        os.remove(case.file_path)
+                        print(f"ลบไฟล์: {case.file_path}")
+                    except Exception as e:
+                        print(f"ไม่สามารถลบไฟล์ได้: {e}")
+                
+                case.file_path = None
+                case.file_size = None
+                case.external_link = None
+                case.link_type = None
+                
+                flash('ลบเอกสารทั้งหมดสำเร็จ', 'success')
+            
+            # บันทึก audit log
+            try:
+                audit = CaseAudit(
+                    case_id=case.id,
+                    action='UPDATE',
+                    user_id=current_user.id,
+                    ip_address=request.remote_addr
+                )
+                db.session.add(audit)
+            except Exception as e:
+                print(f"ไม่สามารถสร้าง audit log ได้: {e}")
+            
+            try:
+                db.session.commit()
+                flash('แก้ไขข้อมูลผู้ป่วยสำเร็จ', 'success')
+                return redirect(url_for('admin_cases'))
+            except Exception as e:
+                print(f"เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล: {e}")
+                db.session.rollback()
+                flash(f'เกิดข้อผิดพลาดในการบันทึก: {str(e)}', 'error')
+                return redirect(url_for('admin_edit_case', case_id=case_id))
+    
+    # GET request - แสดงหน้าแก้ไข
+    departments = db.session.query(Department).all()
+    return render_template('admin/edit_case.html', case=case, departments=departments)
+
+@app.route('/admin/cases/delete/<int:case_id>', methods=['POST'])
+@login_required
+def admin_delete_case(case_id):
+    """ลบ case"""
+    case = db.session.get(PatientCase, case_id)
+    if case is None or case.is_deleted:
+        abort(404)
+    
+    case.is_deleted = True
+    case.updated_at = datetime.now(timezone.utc)
+    
+    # บันทึก audit log
+    audit = CaseAudit(
+        case_id=case.id,
+        action='DELETE',
+        user_id=current_user.id,
+        ip_address=request.remote_addr
+    )
+    db.session.add(audit)
+    
+    db.session.commit()
+    flash('ลบข้อมูลผู้ป่วยสำเร็จ', 'success')
+    return redirect(url_for('admin_cases'))
+
+@app.route('/download/case/<int:case_id>')
+def download_case_file(case_id):
+    """ดาวน์โหลดไฟล์ของ case"""
+    case = db.session.get(PatientCase, case_id)
+    if case is None or case.is_deleted or not case.file_path:
+        abort(404)
+    
+    if os.path.exists(case.file_path):
+        return send_file(case.file_path, as_attachment=True)
+    else:
+        flash('ไฟล์ไม่พบ', 'error')
+        return redirect(url_for('admin_cases'))
+
+@app.route('/admin/cases/search')
+@login_required
+def admin_search_cases():
+    """ค้นหา cases สำหรับแสดงตัวอย่างก่อน export"""
+    # รับพารามิเตอร์จาก query string
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    department_id = request.args.get('department_id')
+    
+    # สร้าง query
+    query = db.session.query(PatientCase).join(Department).filter(PatientCase.is_deleted == False)
+    
+    # กรองตามวันที่
+    if start_date:
+        query = query.filter(PatientCase.case_date >= start_date)
+    if end_date:
+        query = query.filter(PatientCase.case_date <= end_date)
+    
+    # กรองตามหน่วยงาน
+    if department_id:
+        query = query.filter(PatientCase.department_id == department_id)
+    
+    # ดึงข้อมูล (จำกัดจำนวนเพื่อแสดงตัวอย่าง)
+    cases = query.limit(10).all()
+    
+    # แปลงเป็น JSON
+    result = []
+    for case in cases:
+        # ตรวจสอบว่ามีไฟล์หรือ external link
+        document_info = ''
+        if case.file_path:
+            document_info = 'มีไฟล์แนบ'
+        elif case.external_link:
+            document_info = case.external_link
+        
+        result.append({
+            'id': case.id,
+            'hn': case.hn,
+            'first_name': case.first_name,
+            'last_name': case.last_name,
+            'department_name': case.department.name if case.department else 'ไม่ระบุ',
+            'case_date': case.case_date.strftime('%d/%m/%Y') if case.case_date else '',
+            'notes': case.notes or '',
+            'document_info': document_info
+        })
+    
+    return jsonify(result)
+
+@app.route('/admin/cases/export')
+@login_required
+def admin_export_cases():
+    """Export ข้อมูล cases เป็น CSV"""
+    from io import StringIO
+    import csv
+    
+    # รับพารามิเตอร์จาก query string
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    department_id = request.args.get('department_id')
+    
+    # สร้าง query
+    query = db.session.query(PatientCase).join(Department).filter(PatientCase.is_deleted == False)
+    
+    # กรองตามวันที่
+    if start_date:
+        query = query.filter(PatientCase.case_date >= start_date)
+    if end_date:
+        query = query.filter(PatientCase.case_date <= end_date)
+    
+    # กรองตามหน่วยงาน
+    if department_id:
+        query = query.filter(PatientCase.department_id == department_id)
+    
+    # ดึงข้อมูล
+    cases = query.all()
+    
+    # สร้าง CSV
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # เขียน header
+    writer.writerow(['HN', 'ชื่อ', 'นามสกุล', 'หน่วยงาน', 'วันที่วินิจฉัย', 'หมายเหตุ', 'เอกสาร'])
+    
+    # เขียนข้อมูล
+    for case in cases:
+        # ตรวจสอบว่ามีไฟล์หรือ external link
+        document_info = ''
+        if case.file_path:
+            document_info = 'มีไฟล์แนบ'
+        elif case.external_link:
+            document_info = case.external_link
+        
+        writer.writerow([
+            case.hn,
+            case.first_name,
+            case.last_name,
+            case.department.name,
+            case.case_date.strftime('%d/%m/%Y') if case.case_date else '',
+            case.notes or '',
+            document_info
+        ])
+    
+    # สร้าง response
+    output.seek(0)
+    csv_data = output.getvalue()
+    output.close()
+    
+    # สร้าง filename
+    filename = f"cases_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    
+    # ส่งไฟล์ - ใช้ BytesIO สำหรับ binary data
+    from io import BytesIO
+    csv_bytes = csv_data.encode('utf-8-sig')  # เพิ่ม BOM สำหรับ Excel
+    csv_buffer = BytesIO(csv_bytes)
+    
+    return send_file(
+        csv_buffer,
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=filename
+    )
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -146,6 +817,24 @@ def admin_login():
     
     return render_template('admin/login.html')
 
+@app.route('/admin/cases/login', methods=['GET', 'POST'])
+def admin_cases_login():
+    """หน้า login แยกสำหรับระบบจัดการข้อมูลผู้ป่วย"""
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = db.session.query(AdminUser).filter_by(username=username).first()
+        
+        if user and check_password_hash(user.password_hash, password):
+            login_user(user)
+            user.last_login = datetime.now(timezone.utc)
+            db.session.commit()
+            return redirect(url_for('admin_cases'))
+        else:
+            flash('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'error')
+    
+    return render_template('admin/cases_login.html')
+
 @app.route('/admin/logout')
 @login_required
 def admin_logout():
@@ -159,7 +848,8 @@ def admin_dashboard():
         'departments': db.session.query(Department).count(),
         'guidelines': db.session.query(Guideline).count(),
         'knowledge': db.session.query(Knowledge).count(),
-        'activities': db.session.query(Activity).count()
+        'activities': db.session.query(Activity).count(),
+        'total_cases': db.session.query(PatientCase).filter_by(is_deleted=False).count()
     }
     return render_template('admin/dashboard.html', stats=stats)
 
@@ -206,29 +896,59 @@ def admin_edit_guideline(guideline_id):
                 
                 # ลบไฟล์เก่าถ้ามี
                 if guideline.file_path and os.path.exists(guideline.file_path):
-                    os.remove(guideline.file_path)
+                    try:
+                        os.remove(guideline.file_path)
+                        print(f"ลบไฟล์เก่า: {guideline.file_path}")
+                    except Exception as e:
+                        print(f"ไม่สามารถลบไฟล์เก่าได้: {e}")
                 
-                filename = secure_filename(file.filename)
+                # จัดการชื่อไฟล์
+                original_filename = file.filename
+                custom_filename = request.form.get('custom_filename', '').strip()
+                print(f"ชื่อไฟล์ต้นฉบับ: {original_filename}")
+                print(f"ชื่อไฟล์ที่ต้องการ: {custom_filename}")
+                
+                # สร้างชื่อไฟล์ใหม่
+                new_filename = generate_safe_filename(
+                    original_filename, 
+                    custom_filename
+                )
+                print(f"ชื่อไฟล์ใหม่: {new_filename}")
+                
                 dept = db.session.get(Department, department_id)
                 dept_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'guidelines', dept.code.lower())
                 os.makedirs(dept_folder, exist_ok=True)
                 
-                file_path = os.path.join(dept_folder, filename)
-                file.save(file_path)
+                file_path = os.path.join(dept_folder, new_filename)
+                print(f"บันทึกไฟล์ที่: {file_path}")
                 
-                guideline.file_path = file_path
-                guideline.file_size = file_size
-                guideline.external_link = None
-                guideline.link_type = None
+                # บันทึกไฟล์
+                try:
+                    file.save(file_path)
+                    # ตรวจสอบว่าไฟล์ถูกบันทึกจริงหรือไม่
+                    if os.path.exists(file_path):
+                        actual_size = os.path.getsize(file_path)
+                        print(f"ไฟล์ถูกบันทึกสำเร็จ ขนาดจริง: {actual_size} bytes")
+                        
+                        guideline.file_path = file_path
+                        guideline.file_size = actual_size
+                        guideline.external_link = None
+                        guideline.link_type = None
+                        
+                        flash(f'อัปโหลดไฟล์ใหม่สำเร็จ: {new_filename}', 'success')
+                    else:
+                        print("ไฟล์ไม่ถูกบันทึก!")
+                        flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                        return redirect(url_for('admin_edit_guideline', guideline_id=guideline_id))
+                except Exception as e:
+                    print(f"เกิดข้อผิดพลาด: {e}")
+                    flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                    return redirect(url_for('admin_edit_guideline', guideline_id=guideline_id))
         elif upload_type == 'link':
             external_link = request.form['external_link']
             link_type = request.form['link_type']
             
             if external_link:
-                # ลบไฟล์เก่าถ้ามี
-                if guideline.file_path and os.path.exists(guideline.file_path):
-                    os.remove(guideline.file_path)
-                
                 guideline.external_link = external_link
                 guideline.link_type = link_type
                 guideline.file_path = None
@@ -257,6 +977,33 @@ def admin_delete_guideline(guideline_id):
     flash('ลบ guideline สำเร็จ', 'success')
     return redirect(url_for('admin_guidelines'))
 
+@app.route('/admin/guidelines/delete_file/<int:guideline_id>', methods=['POST'])
+@login_required
+def admin_delete_guideline_file(guideline_id):
+    """ลบไฟล์ที่แนบกับ guideline"""
+    guideline = db.session.get(Guideline, guideline_id)
+    if guideline is None:
+        abort(404)
+    
+    if guideline.file_path and os.path.exists(guideline.file_path):
+        try:
+            os.remove(guideline.file_path)
+            print(f"ลบไฟล์: {guideline.file_path}")
+            
+            # อัปเดตฐานข้อมูล
+            guideline.file_path = None
+            guideline.file_size = None
+            db.session.commit()
+            
+            flash('ลบไฟล์สำเร็จ', 'success')
+        except Exception as e:
+            print(f"ไม่สามารถลบไฟล์ได้: {e}")
+            flash('เกิดข้อผิดพลาดในการลบไฟล์', 'error')
+    else:
+        flash('ไฟล์ไม่พบ', 'error')
+    
+    return redirect(url_for('admin_edit_guideline', guideline_id=guideline_id))
+
 @app.route('/admin/upload_guideline', methods=['GET', 'POST'])
 @login_required
 def upload_guideline():
@@ -278,28 +1025,55 @@ def upload_guideline():
                     flash(f'ไฟล์มีขนาดใหญ่เกินไป (สูงสุด {app.config["MAX_FILE_SIZE"] // (1024*1024)} MB)', 'error')
                     return redirect(url_for('admin_upload_guideline'))
                 
-                filename = secure_filename(file.filename)
+                # จัดการชื่อไฟล์
+                original_filename = file.filename
+                custom_filename = request.form.get('custom_filename', '').strip()
+                print(f"ชื่อไฟล์ต้นฉบับ: {original_filename}")
+                print(f"ชื่อไฟล์ที่ต้องการ: {custom_filename}")
+                
+                # สร้างชื่อไฟล์ใหม่
+                new_filename = generate_safe_filename(
+                    original_filename, 
+                    custom_filename
+                )
+                print(f"ชื่อไฟล์ใหม่: {new_filename}")
+                
                 dept = db.session.get(Department, department_id)
                 dept_folder = os.path.join(app.config['UPLOAD_FOLDER'], 'guidelines', dept.code.lower())
                 os.makedirs(dept_folder, exist_ok=True)
                 
-                file_path = os.path.join(dept_folder, filename)
-                file.save(file_path)
+                file_path = os.path.join(dept_folder, new_filename)
+                print(f"บันทึกไฟล์ที่: {file_path}")
                 
-                guideline = Guideline(
-                    department_id=department_id,
-                    title=title,
-                    file_path=file_path,
-                    file_size=file_size,
-                    description=description,
-                    external_link=None,
-                    link_type=None
-                )
-                db.session.add(guideline)
-                db.session.commit()
-                
-                flash('อัปโหลดไฟล์สำเร็จ', 'success')
-                return redirect(url_for('admin_guidelines'))
+                # บันทึกไฟล์
+                try:
+                    file.save(file_path)
+                    # ตรวจสอบว่าไฟล์ถูกบันทึกจริงหรือไม่
+                    if os.path.exists(file_path):
+                        actual_size = os.path.getsize(file_path)
+                        print(f"ไฟล์ถูกบันทึกสำเร็จ ขนาดจริง: {actual_size} bytes")
+                        
+                        guideline = Guideline(
+                            department_id=department_id,
+                            title=title,
+                            file_path=file_path,
+                            file_size=actual_size,
+                            description=description,
+                            external_link=None,
+                            link_type=None
+                        )
+                        db.session.add(guideline)
+                        db.session.commit()
+                        
+                        flash(f'อัปโหลดไฟล์สำเร็จ: {new_filename}', 'success')
+                        return redirect(url_for('admin_guidelines'))
+                    else:
+                        print("ไฟล์ไม่ถูกบันทึก!")
+                        flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                except Exception as e:
+                    print(f"เกิดข้อผิดพลาด: {e}")
+                    flash('เกิดข้อผิดพลาดในการบันทึกไฟล์', 'error')
+                    return redirect(url_for('admin_upload_guideline'))
             else:
                 flash('กรุณาเลือกไฟล์', 'error')
         elif upload_type == 'link':
@@ -462,6 +1236,9 @@ def delete_department(dept_id):
     db.session.query(Knowledge).filter_by(department_id=dept_id).delete()
     db.session.query(Activity).filter_by(department_id=dept_id).delete()
     db.session.query(Contact).filter_by(department_id=dept_id).delete()
+    
+    # ลบ PatientCase ที่อ้างอิงหน่วยงานนี้
+    db.session.query(PatientCase).filter_by(department_id=dept_id).delete()
     
     # ลบหน่วยงาน
     db.session.delete(dept)
@@ -747,6 +1524,43 @@ def admin_delete_activity(activity_id):
     flash('ลบกิจกรรมสำเร็จ', 'success')
     return redirect(url_for('admin_activities'))
 
+@app.route('/admin/cases/delete_file/<int:case_id>', methods=['POST'])
+@login_required
+def admin_delete_case_file(case_id):
+    """ลบไฟล์ที่แนบกับ case"""
+    case = db.session.get(PatientCase, case_id)
+    if case is None:
+        abort(404)
+    
+    if case.file_path and os.path.exists(case.file_path):
+        try:
+            os.remove(case.file_path)
+            print(f"ลบไฟล์: {case.file_path}")
+            
+            # อัปเดตฐานข้อมูล
+            case.file_path = None
+            case.file_size = None
+            db.session.commit()
+            
+            # บันทึก audit log
+            audit = CaseAudit(
+                case_id=case.id,
+                action='DELETE_FILE',
+                user_id=current_user.id,
+                ip_address=request.remote_addr
+            )
+            db.session.add(audit)
+            db.session.commit()
+            
+            flash('ลบไฟล์สำเร็จ', 'success')
+        except Exception as e:
+            print(f"ไม่สามารถลบไฟล์ได้: {e}")
+            flash('เกิดข้อผิดพลาดในการลบไฟล์', 'error')
+    else:
+        flash('ไฟล์ไม่พบ', 'error')
+    
+    return redirect(url_for('admin_edit_case', case_id=case_id))
+
 def init_db():
     with app.app_context():
         db.create_all()
@@ -776,14 +1590,115 @@ def init_db():
             admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
             admin_email = os.getenv('ADMIN_EMAIL', 'admin@hospital.local')
             
-            admin = AdminUser(
-                username=admin_username,
-                password_hash=generate_password_hash(admin_password),
-                email=admin_email
-            )
-            db.session.add(admin)
+            # ตรวจสอบว่ามี admin user อยู่แล้วหรือไม่
+            existing_admin = AdminUser.query.filter_by(username=admin_username).first()
+            
+            if not existing_admin:
+                admin = AdminUser(
+                    username=admin_username,
+                    password_hash=generate_password_hash(admin_password),
+                    email=admin_email
+                )
+                db.session.add(admin)
+                print(f"✅ สร้าง admin user: {admin_username}")
+            else:
+                print(f"✅ Admin user มีอยู่แล้ว: {admin_username}")
             
             db.session.commit()
+
+# ==================== USER MANAGEMENT ====================
+@app.route('/admin/users')
+@login_required
+def admin_users():
+    """หน้าจัดการ Users"""
+    if current_user.role != 'admin':
+        flash('คุณไม่มีสิทธิ์เข้าถึงหน้านี้', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    users = db.session.query(User).order_by(User.created_at.desc()).all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/admin/users/add', methods=['POST'])
+@login_required
+def admin_add_user():
+    """เพิ่ม User ใหม่"""
+    if current_user.role != 'admin':
+        flash('คุณไม่มีสิทธิ์เข้าถึงหน้านี้', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    try:
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        email = request.form.get('email')
+        role = request.form.get('role')
+        
+        # Validation
+        if not username or not password or not role:
+            flash('กรุณากรอกข้อมูลให้ครบถ้วน', 'error')
+            return redirect(url_for('admin_users'))
+        
+        if password != confirm_password:
+            flash('รหัสผ่านไม่ตรงกัน', 'error')
+            return redirect(url_for('admin_users'))
+        
+        if len(password) < 6:
+            flash('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 'error')
+            return redirect(url_for('admin_users'))
+        
+        # ตรวจสอบ username ซ้ำ
+        existing_user = db.session.query(User).filter_by(username=username).first()
+        if existing_user:
+            flash('ชื่อผู้ใช้นี้มีอยู่แล้วในระบบ', 'error')
+            return redirect(url_for('admin_users'))
+        
+        # สร้าง user ใหม่
+        new_user = User(
+            username=username,
+            password_hash=generate_password_hash(password),
+            email=email if email else None,
+            role=role,
+            is_active=True
+        )
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        flash(f'เพิ่ม User {username} สำเร็จ', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'เกิดข้อผิดพลาด: {str(e)}', 'error')
+    
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/delete/<int:user_id>', methods=['POST'])
+@login_required
+def admin_delete_user(user_id):
+    """ลบ User"""
+    if current_user.role != 'admin':
+        flash('คุณไม่มีสิทธิ์เข้าถึงหน้านี้', 'error')
+        return redirect(url_for('admin_dashboard'))
+    
+    if user_id == current_user.id:
+        flash('คุณไม่สามารถลบตัวเองได้', 'error')
+        return redirect(url_for('admin_users'))
+    
+    user = db.session.get(User, user_id)
+    if user is None:
+        flash('ไม่พบ User ที่ต้องการลบ', 'error')
+        return redirect(url_for('admin_users'))
+    
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        flash(f'ลบ User {user.username} สำเร็จ', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'เกิดข้อผิดพลาด: {str(e)}', 'error')
+    
+    return redirect(url_for('admin_users'))
 
 if __name__ == '__main__':
     init_db()

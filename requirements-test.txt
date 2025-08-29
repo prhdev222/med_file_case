@@ -1,0 +1,37 @@
+# Test Dependencies for Hospital Management System
+# Dependencies สำหรับการทดสอบระบบจัดการข้อมูลผู้ป่วย
+
+# Testing Framework
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-html==4.1.1
+
+# HTTP Testing
+requests==2.31.0
+httpx==0.25.2
+
+# Database Testing
+factory-boy==3.3.0
+faker==20.1.0
+
+# Code Quality
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Performance Testing
+locust==2.17.0
+
+# Security Testing
+bandit==1.7.5
+
+# Documentation Testing
+doctest-ignore-unicode==0.1.2
+
+# Mock and Stub
+responses==0.24.1
+freezegun==1.2.2
+
+# Coverage
+coverage==7.3.2
