@@ -63,12 +63,17 @@ app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER', 'storage/uploads')
 app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH', 50 * 1024 * 1024))  # 50MB
 app.config['MAX_FILE_SIZE'] = int(os.getenv('MAX_FILE_SIZE', 25 * 1024 * 1024))  # 25MB per file
 
-# สร้างโฟลเดอร์ storage ถ้ายังไม่มี
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'guidelines'), exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'images'), exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'cases'), exist_ok=True)
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'temp'), exist_ok=True)
+# สร้างโฟลเดอร์ storage ถ้ายังไม่มี (เฉพาะ local)
+# ใน serverless ใช้ external storage (Supabase Storage)
+try:
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'guidelines'), exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'images'), exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'cases'), exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'temp'), exist_ok=True)
+except (OSError, PermissionError) as e:
+    # ใน serverless อาจไม่สามารถสร้าง directory ได้ - ไม่เป็นไร
+    print(f"Warning: Could not create upload directories: {e}")
 
 # Initialize database with app
 db.init_app(app)
