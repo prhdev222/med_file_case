@@ -145,18 +145,28 @@ if IS_SERVERLESS:
     
     # Initialize database tables เมื่อ function ถูกเรียกครั้งแรก (lazy initialization)
     _db_initialized = False
+    _db_init_error = None
     
     @app.before_request
     def ensure_db_initialized():
-        global _db_initialized
-        if not _db_initialized:
+        global _db_initialized, _db_init_error
+        if not _db_initialized and _db_init_error is None:
             try:
                 with app.app_context():
+                    # Test database connection first
+                    db.session.execute(db.text('SELECT 1'))
+                    db.session.commit()
+                    # Create tables if they don't exist
                     db.create_all()
-                    print("Database tables initialized")
+                    print("Database tables initialized successfully")
                 _db_initialized = True
             except Exception as e:
+                _db_init_error = str(e)
                 print(f"Error initializing database: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail the request, but log the error
+                # The route handlers will handle database errors gracefully
 
 if __name__ == '__main__':
     init_db()

@@ -67,3 +67,4 @@ backups/
 # Cache
 .cache/
 .pytest_cache/
+.vercel
