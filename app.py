@@ -84,16 +84,28 @@ def load_user(user_id):
 # Register all blueprints
 register_blueprints(app)
 
-# Debug: Print all registered routes
-with app.app_context():
-    print("\n=== Registered Routes ===")
-    for rule in app.url_map.iter_rules():
-        print(f"{rule.methods} {rule.rule} -> {rule.endpoint}")
-    print("========================\n")
+# ตรวจสอบว่า run บน serverless platform (ต้องตรวจสอบก่อน)
+IS_VERCEL = os.getenv('VERCEL') == '1'
+IS_NETLIFY = os.getenv('NETLIFY') == 'true'
+IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
 
-# Initialize database tables
-with app.app_context():
-    db.create_all()
+# Debug: Print all registered routes (เฉพาะ local)
+if not IS_SERVERLESS:
+    with app.app_context():
+        print("\n=== Registered Routes ===")
+        for rule in app.url_map.iter_rules():
+            print(f"{rule.methods} {rule.rule} -> {rule.endpoint}")
+        print("========================\n")
+
+# Initialize database tables (เฉพาะเมื่อ run local)
+# ใน serverless จะ initialize เมื่อ function ถูกเรียกครั้งแรก
+if not IS_SERVERLESS:
+    with app.app_context():
+        try:
+            db.create_all()
+            print("เริ่มต้นฐานข้อมูลเรียบร้อยแล้ว")
+        except Exception as e:
+            print(f"เกิดข้อผิดพลาดในการเริ่มต้นฐานข้อมูล: {e}")
 
 # Initialize backup system
 def init_backup_system():
@@ -114,19 +126,32 @@ def init_backup_system():
 def init_db():
     """เริ่มต้นฐานข้อมูล"""
     with app.app_context():
-        db.create_all()
-        print("เริ่มต้นฐานข้อมูลเรียบร้อยแล้ว")
-
-# ตรวจสอบว่า run บน serverless platform
-IS_VERCEL = os.getenv('VERCEL') == '1'
-IS_NETLIFY = os.getenv('NETLIFY') == 'true'
-IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
+        try:
+            db.create_all()
+            print("เริ่มต้นฐานข้อมูลเรียบร้อยแล้ว")
+        except Exception as e:
+            print(f"เกิดข้อผิดพลาดในการเริ่มต้นฐานข้อมูล: {e}")
 
 if IS_SERVERLESS:
     # ปรับ settings สำหรับ serverless
     app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB (serverless limit)
     # ปิด backup system (ไม่ทำงานใน serverless)
     print("Running on serverless platform (Vercel/Netlify)")
+    
+    # Initialize database tables เมื่อ function ถูกเรียกครั้งแรก (lazy initialization)
+    _db_initialized = False
+    
+    @app.before_request
+    def ensure_db_initialized():
+        global _db_initialized
+        if not _db_initialized:
+            try:
+                with app.app_context():
+                    db.create_all()
+                    print("Database tables initialized")
+                _db_initialized = True
+            except Exception as e:
+                print(f"Error initializing database: {e}")
 
 if __name__ == '__main__':
     init_db()
