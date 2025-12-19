@@ -9,14 +9,30 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # ตั้งค่า logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("backup.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+# ตรวจสอบว่า run บน serverless platform หรือไม่
+IS_VERCEL = os.getenv('VERCEL') == '1'
+IS_NETLIFY = os.getenv('NETLIFY') == 'true'
+IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
+
+# ใน serverless environment ไม่สามารถเขียนไฟล์ได้ ใช้ StreamHandler เท่านั้น
+if IS_SERVERLESS:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
+else:
+    # ใน local environment ใช้ทั้ง FileHandler และ StreamHandler
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler("backup.log", encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
 
 # แก้ไขปัญหา encoding สำหรับ console output บน Windows
 import sys
