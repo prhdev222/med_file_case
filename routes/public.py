@@ -10,16 +10,44 @@ def health_check():
     try:
         # Test database connection
         db.session.execute(db.text('SELECT 1'))
+        db.session.commit()
         return jsonify({
             'status': 'healthy',
             'database': 'connected'
         }), 200
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
         return jsonify({
             'status': 'unhealthy',
             'database': 'disconnected',
-            'error': str(e)
+            'error': str(e),
+            'traceback': error_trace
         }), 503
+
+@public_bp.route('/debug')
+def debug_info():
+    """Debug endpoint to check environment and database"""
+    import os
+    from flask import current_app
+    
+    info = {
+        'vercel': os.getenv('VERCEL') == '1',
+        'database_url_set': bool(os.getenv('DATABASE_URL')),
+        'database_url_preview': os.getenv('DATABASE_URL', '')[:50] + '...' if os.getenv('DATABASE_URL') else 'Not set',
+        'secret_key_set': bool(os.getenv('SECRET_KEY')),
+        'flask_env': os.getenv('FLASK_ENV', 'Not set'),
+    }
+    
+    # Test database connection
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        db.session.commit()
+        info['database_connection'] = 'success'
+    except Exception as e:
+        info['database_connection'] = f'failed: {str(e)}'
+    
+    return jsonify(info), 200
 
 @public_bp.route('/')
 def home():
