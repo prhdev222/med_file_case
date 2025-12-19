@@ -6,7 +6,25 @@ from routes import register_blueprints
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from services import BackupSystem, start_scheduled_backup, run_backup_now
+
+# Import services only if not in serverless (to avoid import errors)
+IS_VERCEL = os.getenv('VERCEL') == '1'
+IS_NETLIFY = os.getenv('NETLIFY') == 'true'
+IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
+
+if not IS_SERVERLESS:
+    try:
+        from services import BackupSystem, start_scheduled_backup, run_backup_now
+    except ImportError as e:
+        print(f"Warning: Could not import backup services: {e}")
+        BackupSystem = None
+        start_scheduled_backup = None
+        run_backup_now = None
+else:
+    # In serverless, backup services are not needed
+    BackupSystem = None
+    start_scheduled_backup = None
+    run_backup_now = None
 
 def generate_safe_filename(original_filename, custom_filename=None, first_name=None, last_name=None):
     """สร้างชื่อไฟล์ที่ปลอดภัย"""
@@ -126,10 +144,7 @@ def handle_exception(e):
         'type': type(e).__name__
     }), 500
 
-# ตรวจสอบว่า run บน serverless platform (ต้องตรวจสอบก่อน)
-IS_VERCEL = os.getenv('VERCEL') == '1'
-IS_NETLIFY = os.getenv('NETLIFY') == 'true'
-IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
+# IS_SERVERLESS already defined above
 
 # Debug: Print all registered routes (เฉพาะ local)
 if not IS_SERVERLESS:
@@ -213,8 +228,11 @@ if __name__ == '__main__':
     init_db()
     
     # เริ่มระบบสำรองข้อมูลอัตโนมัติ (เฉพาะ local)
-    if not IS_SERVERLESS:
-        backup_system = init_backup_system()
+    if not IS_SERVERLESS and start_scheduled_backup:
+        try:
+            backup_system = init_backup_system()
+        except Exception as e:
+            print(f"Warning: Could not start backup system: {e}")
     
     # ใช้ environment variables สำหรับ host และ port
     host = os.getenv('HOST', '0.0.0.0')
