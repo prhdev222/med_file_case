@@ -175,3 +175,4 @@ WHERE table_schema = 'public'
     AND table_name IN ('departments', 'admin_user', 'patient_case', 'guideline', 'knowledge', 'activity', 'contact')
 ORDER BY table_name, ordinal_position;
 
+

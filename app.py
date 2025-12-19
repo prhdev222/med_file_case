@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 # Import services only if not in serverless (to avoid import errors)
 IS_VERCEL = os.getenv('VERCEL') == '1'
 IS_NETLIFY = os.getenv('NETLIFY') == 'true'
-IS_SERVERLESS = IS_VERCEL or IS_NETLIFY
+IS_LAMBDA = os.getenv('AWS_LAMBDA_FUNCTION_NAME') is not None
+IS_SERVERLESS = IS_VERCEL or IS_NETLIFY or IS_LAMBDA
 
 if not IS_SERVERLESS:
     try:
@@ -156,13 +157,10 @@ if not IS_SERVERLESS:
 
 # Initialize database tables (เฉพาะเมื่อ run local)
 # ใน serverless จะ initialize เมื่อ function ถูกเรียกครั้งแรก
-if not IS_SERVERLESS:
-    with app.app_context():
-        try:
-            db.create_all()
-            print("เริ่มต้นฐานข้อมูลเรียบร้อยแล้ว")
-        except Exception as e:
-            print(f"เกิดข้อผิดพลาดในการเริ่มต้นฐานข้อมูล: {e}")
+# Initialize database tables (เฉพาะเมื่อ run local)
+# ใน serverless จะ initialize เมื่อ function ถูกเรียกครั้งแรก
+# Moved to if __name__ == '__main__' block or handled by ensure_db_initialized
+pass
 
 # Initialize backup system
 def init_backup_system():

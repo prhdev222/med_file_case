@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 import os
 import json
 from models import db, Department, Guideline, Knowledge, Activity, Contact, PatientCase, CaseAudit, AdminUser
-from services.backup_system import BackupSystem
+# from services.backup_system import BackupSystem  # Moved to inside functions
 from utils.jwt_utils import JWTManager, jwt_required, admin_required, get_current_user
 
 admin_api_bp = Blueprint('admin_api', __name__, url_prefix='/api/admin')
@@ -505,6 +505,7 @@ def api_delete_case(case_id):
 def api_get_backups():
     """API endpoint to get all backups"""
     try:
+        from services.backup_system import BackupSystem
         backup_system = BackupSystem()
         backups = backup_system.list_backups()
         
@@ -529,6 +530,7 @@ def api_get_backups():
 def api_create_backup():
     """API endpoint to create a new backup"""
     try:
+        from services.backup_system import BackupSystem
         backup_system = BackupSystem()
         result = backup_system.create_backup()
         
@@ -554,6 +556,7 @@ def api_create_backup():
 def api_download_backup(filename):
     """API endpoint to download a backup file"""
     try:
+        from services.backup_system import BackupSystem
         backup_system = BackupSystem()
         backup_path = backup_system.get_backup_path(filename)
         
@@ -574,6 +577,7 @@ def api_download_backup(filename):
 def api_restore_backup(filename):
     """API endpoint to restore from a backup file"""
     try:
+        from services.backup_system import BackupSystem
         backup_system = BackupSystem()
         result = backup_system.restore_backup(filename)
         
@@ -595,6 +599,7 @@ def api_restore_backup(filename):
 def api_delete_backup(filename):
     """API endpoint to delete a backup file"""
     try:
+        from services.backup_system import BackupSystem
         backup_system = BackupSystem()
         result = backup_system.delete_backup(filename)
         
