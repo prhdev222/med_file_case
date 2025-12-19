@@ -1,0 +1,28 @@
+# Systemd Service Template for Hospital Administration System
+# Copy this file to /etc/systemd/system/hospital-admin.service
+# and update the paths
+
+[Unit]
+Description=Hospital Administration System
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=appuser
+Group=appuser
+WorkingDirectory=/var/www/hospital-admin
+Environment="PATH=/var/www/hospital-admin/venv/bin"
+Environment="FLASK_ENV=production"
+ExecStart=/var/www/hospital-admin/venv/bin/gunicorn \
+    --workers 3 \
+    --bind unix:/var/www/hospital-admin/hospital-admin.sock \
+    --timeout 120 \
+    --access-logfile /var/log/hospital-admin/access.log \
+    --error-logfile /var/log/hospital-admin/error.log \
+    app:app
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

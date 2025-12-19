@@ -4,6 +4,7 @@ Models สำหรับระบบจัดการข้อมูลผู�
 """
 
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
 from datetime import datetime, timezone
 
 db = SQLAlchemy()
@@ -92,10 +93,12 @@ class CaseAudit(db.Model):
     case = db.relationship('PatientCase', backref=db.backref('audit_logs', lazy=True))
     user = db.relationship('AdminUser', backref=db.backref('case_audits', lazy=True))
 
-class AdminUser(db.Model):
+class AdminUser(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
+    role = db.Column(db.String(20), default='staff')
+    is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_login = db.Column(db.DateTime)

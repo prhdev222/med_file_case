@@ -54,9 +54,9 @@ def test_public_stats():
             # ตรวจสอบ JavaScript สำหรับกราฟ
             if "Chart.js" in content and "initializeCharts" in content:
                 print("✅ JavaScript กราฟโหลดถูกต้อง")
-            else:
+        else:
                 print("❌ JavaScript กราฟไม่โหลด")
-                
+            
         else:
             print(f"❌ Stats Page ล้มเหลว: {response.status_code}")
             

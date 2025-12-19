@@ -1,0 +1,17 @@
+[build]
+  command = "echo 'No build needed'"
+  functions = "netlify/functions"
+  publish = "."
+
+[[plugins]]
+  package = "@netlify/plugin-python"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["app.py", "models/**", "routes/**", "services/**", "utils/**"]
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200
+

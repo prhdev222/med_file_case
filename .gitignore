@@ -60,6 +60,10 @@ Thumbs.db
 storage/uploads/
 uploads/
 
+# Backups
+storage/backups/
+backups/
+
 # Cache
 .cache/
 .pytest_cache/
