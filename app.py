@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_login import LoginManager
 from models import db, AdminUser
@@ -89,6 +89,43 @@ def load_user(user_id):
 # Register all blueprints
 register_blueprints(app)
 
+# Global error handler for better error reporting
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors with detailed logging"""
+    import traceback
+    error_msg = str(error)
+    traceback_str = traceback.format_exc()
+    
+    # Log error details
+    print(f"❌ 500 Error: {error_msg}")
+    print(f"Traceback: {traceback_str}")
+    
+    # Return JSON error response
+    return jsonify({
+        'error': 'Internal Server Error',
+        'message': error_msg,
+        'type': type(error).__name__
+    }), 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all unhandled exceptions"""
+    import traceback
+    error_msg = str(e)
+    traceback_str = traceback.format_exc()
+    
+    # Log error details
+    print(f"❌ Unhandled Exception: {error_msg}")
+    print(f"Traceback: {traceback_str}")
+    
+    # Return JSON error response
+    return jsonify({
+        'error': 'Internal Server Error',
+        'message': error_msg,
+        'type': type(e).__name__
+    }), 500
+
 # ตรวจสอบว่า run บน serverless platform (ต้องตรวจสอบก่อน)
 IS_VERCEL = os.getenv('VERCEL') == '1'
 IS_NETLIFY = os.getenv('NETLIFY') == 'true'
@@ -156,13 +193,17 @@ if IS_SERVERLESS:
                     # Test database connection first
                     db.session.execute(db.text('SELECT 1'))
                     db.session.commit()
-                    # Create tables if they don't exist
-                    db.create_all()
-                    print("Database tables initialized successfully")
+                    # Create tables if they don't exist (safe - won't recreate existing tables)
+                    try:
+                        db.create_all()
+                        print("✅ Database tables initialized successfully")
+                    except Exception as create_error:
+                        # Tables might already exist, that's okay
+                        print(f"⚠️ Note: {create_error}")
                 _db_initialized = True
             except Exception as e:
                 _db_init_error = str(e)
-                print(f"Error initializing database: {e}")
+                print(f"❌ Error initializing database: {e}")
                 import traceback
                 traceback.print_exc()
                 # Don't fail the request, but log the error
